@@ -8,8 +8,8 @@ const { EventEmitter } = require("node:events");
 
 // Run the real main entry against an Electron double. This validates wiring,
 // not native AppKit/TCC behavior, which still needs the M5 acceptance checklist.
-async function launch(platform, { slow = false } = {}) {
-  const windows = [], handles = new Map(), state = { starts: 0, stops: 0, captures: 0, errors: [] };
+async function launch(platform, { slow = false, recoverySlow = false } = {}) {
+  const windows = [], handles = new Map(), state = { starts: 0, stops: 0, captures: 0, errors: [], children: [], retiredStops: 0 };
   const paths = { appData: "/user/appData", userData: "/user/data" };
   const app = Object.assign(new EventEmitter(), {
     isPackaged: false, getPath: (name) => paths[name],
@@ -58,7 +58,14 @@ async function launch(platform, { slow = false } = {}) {
     startBackend: async (opts) => {
       state.starts++; state.backendOptions = opts;
       if (slow) await new Promise((resolve, reject) => opts.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
-      return { url: "http://127.0.0.1:7870/client/", child: new EventEmitter() };
+      if (recoverySlow && state.starts > 1) await new Promise((resolve, reject) => {
+        state.finishRecovery = resolve;
+        opts.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+      const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
+      state.children.push(child);
+      return { url: `http://127.0.0.1:${7869 + state.starts}/client/`, child,
+        stop: async () => { state.retiredStops++; } };
     },
   };
   const fakeFs = { existsSync: () => true, mkdirSync() {}, readFileSync: () => '{"contentProtection":true}',
@@ -73,7 +80,7 @@ async function launch(platform, { slow = false } = {}) {
     process: { platform, argv: [], execPath: "/runtime/electron", env: {} },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "main.js"), "utf8"), context);
-  const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
+  const flush = () => new Promise(setImmediate);
   await flush();
   return { app, state, windows, handles, flush };
 }
@@ -83,7 +90,7 @@ test("macOS closes/reopens a native window without spawning a second backend, th
   assert.equal(windows[0].options.frame, true);
   assert.equal(windows[0].options.webPreferences.sandbox, true);
   assert.equal(state.template, true);
-  assert.equal(state.backendOptions.env.INTERVIEW_DATA_DIR, "/user/appData/interview-desktop-dev/data");
+  assert.equal(state.backendOptions.env.INTERVIEW_DATA_DIR, path.join("/user/appData", "interview-desktop-dev", "data"));
   assert.equal(windows[0].protected, undefined);
   const w = windows[0];
   const event = { sender: w.webContents, senderFrame: w.webContents.mainFrame };
@@ -133,4 +140,43 @@ test("quitting during startup aborts without an error dialog or second launch", 
   assert.equal(state.backendOptions.signal.aborted, true);
   assert.equal(state.exited, true);
   assert.equal(state.errors.length, 0);
+});
+
+for (const closed of [false, true]) {
+  test(`backend crash recovers once with window ${closed ? "closed" : "open"}`, async () => {
+    const { state, app, windows, flush } = await launch("darwin", { recoverySlow: true });
+    const old = state.children[0];
+    if (closed) windows[0].close();
+    old.exitCode = 1;
+    old.emit("exit", 1, null);
+    old.emit("close", 1, null);
+    await flush();
+    assert.equal(state.errors.length, 1);
+    assert.ok(state.retiredStops >= 1);
+    app.emit("activate"); app.emit("activate"); app.emit("second-instance");
+    await flush();
+    assert.equal(state.starts, 2);
+    state.finishRecovery();
+    await flush();
+    assert.equal(windows.at(-1).url, "http://127.0.0.1:7871/client/");
+    assert.equal(windows.filter((window) => !window.isDestroyed()).length, 1);
+    old.emit("exit", 1, null);
+    assert.equal(state.errors.length, 1);
+    app.quit(); await flush();
+    assert.equal(state.exited, true);
+    assert.equal(state.starts, 2);
+  });
+}
+
+test("quit while recovering does not relaunch or show a second failure dialog", async () => {
+  const { state, app, flush } = await launch("darwin", { recoverySlow: true });
+  state.children[0].exitCode = 1;
+  state.children[0].emit("exit", 1, null);
+  app.emit("activate"); await flush();
+  assert.equal(state.starts, 2);
+  app.quit(); await flush();
+  assert.equal(state.exited, true);
+  assert.equal(state.errors.length, 1);
+  app.emit("activate"); await flush();
+  assert.equal(state.starts, 2);
 });

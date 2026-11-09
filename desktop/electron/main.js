@@ -154,6 +154,7 @@ const LOADING_PAGE = `data:text/html;charset=utf-8,${encodeURIComponent(`<!docty
 let mainWindow = null;
 let tray = null;
 let backend = null;
+let retiredBackend = null;
 let quitting = false; // 用户真的要退出（托盘菜单 / Ctrl+Q）
 let bootPromise = null;
 const startupAbort = new AbortController();
@@ -239,19 +240,31 @@ function createWindow(initialUrl = LOADING_PAGE) {
 
 function showMainWindow() {
   if (quitting) return;
-  if (!mainWindow) {
-    if (backend) {
-      mainWindow = createWindow(backend.url);
-    } else if (!bootPromise) {
-      bootPromise = boot().catch((error) => {
-        if (!quitting) dialog.showErrorBox("桌面启动失败", String(error.message || error));
-      }).finally(() => { bootPromise = null; });
-    }
-    return;
+  if (!backend && !bootPromise) {
+    bootPromise = boot().catch((error) => {
+      if (!quitting) dialog.showErrorBox("桌面启动失败", String(error.message || error));
+    }).finally(() => { bootPromise = null; });
+  } else if (backend && !mainWindow) {
+    mainWindow = createWindow(backend.url);
   }
+  if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+function backendExited(started, code, signal) {
+  if (quitting || backend !== started) return;
+  backend = null;
+  retiredBackend = started;
+  urlPolicy.setAppOrigin(null);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    void mainWindow.loadURL(LOADING_PAGE).catch((error) => console.error("[window]", error));
+  }
+  // Clean up descendants before any recovery can start a new process group.
+  void started.stop().catch((error) => console.error("[backend] 异常退出清理失败", error));
+  dialog.showErrorBox("本地服务已退出",
+    `Python 后端异常退出（code=${code}, signal=${signal}）。请点击 Dock 或托盘的显示主窗口重试。`);
 }
 
 function quitApp() {
@@ -486,9 +499,14 @@ async function boot() {
     log?.write(`${new Date().toISOString()} ${line}\n`);
   };
 
-  mainWindow = createWindow();
+  if (!mainWindow) mainWindow = createWindow();
 
   try {
+    if (retiredBackend) {
+      await retiredBackend.stop();
+      retiredBackend = null;
+    }
+    if (quitting) return;
     const packaged = packagedBackendOptions();
     backend = await startBackend({
       onLog,
@@ -524,14 +542,22 @@ async function boot() {
     return;
   }
 
+  const started = backend;
+  started.child.once("exit", (code, signal) => backendExited(started, code, signal));
+  started.child.once("close", () => log?.end());
+  if (started.child.exitCode != null || started.child.signalCode != null) {
+    backendExited(started, started.child.exitCode, started.child.signalCode);
+    return;
+  }
+  if (quitting) return;
   console.log(`[electron] 后端已就绪：${backend.url}`);
   urlPolicy.setAppOrigin(backend.url);
   if (mainWindow && !mainWindow.isDestroyed()) {
-    await mainWindow.loadURL(backend.url);
-    if (IS_DEV) mainWindow.webContents.openDevTools({ mode: "detach" });
+    const window = mainWindow;
+    await window.loadURL(started.url);
+    if (IS_DEV && !window.isDestroyed()) window.webContents.openDevTools({ mode: "detach" });
   }
-  // macOS may close and recreate its window while keeping the same backend.
-  backend.child.once("close", () => log?.end());
+
 }
 
 if (process.platform === "win32") app.setAppUserModelId(
@@ -569,7 +595,11 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     // 就算后端还没走到「就绪」，也要把已经拉起的进程收掉。
     startupAbort.abort();
-    Promise.resolve(bootPromise).then(() => stopAll()).then(() => {
+    Promise.resolve(bootPromise).then(async () => {
+      await retiredBackend?.stop();
+      retiredBackend = null;
+      await stopAll();
+    }).then(() => {
       cleanedUp = true;
       backend = null;
       app.quit();
