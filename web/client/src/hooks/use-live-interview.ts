@@ -3,15 +3,15 @@
 import type { TransportState } from "@pipecat-ai/client-js";
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { usePipecatApp } from "@/hooks/use-pipecat-app";
 import {
   CaptureError,
   captureSystemAudio,
-  type CapturedSystemAudio,
 } from "@/lib/capture";
+import { LiveCapture } from "@/lib/live-capture";
 import { transcriptTimestamp, type LiveMessage } from "@/lib/live-message";
 import { readCaptureMic, readDeviceId, saveDeviceId } from "@/lib/preferences";
 import { startBotParams as buildStartBotParams } from "@/lib/session-request";
@@ -49,9 +49,12 @@ export function useLiveInterview({
   const serverMessageRef = useRef(onServerMessage);
   serverMessageRef.current = onServerMessage;
 
-  const displayRef = useRef<CapturedSystemAudio | null>(null);
+  const captureRef = useRef<LiveCapture | null>(null);
+  if (!captureRef.current) captureRef.current = new LiveCapture(manager);
+  const captureSession = captureRef.current;
   const [extraMessages, setExtraMessages] = useState<LiveMessage[]>([]);
   const [interimText, setInterimText] = useState("");
+  const [captureError, setCaptureError] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   // Bumped when the user stops sharing from the browser's own bar, so the
   // Console can end the call instead of streaming silence.
@@ -124,20 +127,19 @@ export function useLiveInterview({
   });
 
   const stopCapture = useCallback(() => {
-    manager.stop();
-    displayRef.current?.dispose();
-    displayRef.current = null;
+    captureSession.stop();
     setInterimText("");
-  }, [manager]);
+  }, [captureSession]);
 
   const beforeConnect = useCallback(async () => {
     setMicError(null);
+    setCaptureError(null);
+    micApp.clearError();
 
+    let signal: AbortSignal;
     try {
-      const capture = await captureSystemAudio();
-      displayRef.current = capture;
-      manager.setStream(capture.stream);
-      capture.source.getAudioTracks()[0]?.addEventListener("ended", () => {
+      signal = await captureSession.start(captureSystemAudio, () => {
+        setCaptureError(t("errors.systemAudioEnded"));
         setDisconnectSignal((value) => value + 1);
       });
     } catch (error) {
@@ -159,33 +161,46 @@ export function useLiveInterview({
     setInterimText("");
     setExtraMessages([]);
 
-    if (!readCaptureMic() || !micApp.client) return;
+    if (!readCaptureMic()) return;
+    if (!micApp.client) { setMicError(t("errors.micNotReady")); return; }
 
     try {
       const client = micApp.client;
-      if (client.needsInit()) await client.initDevices();
-      const stored = readDeviceId("mic");
-      if (stored) {
-        // The client's updateMic drops the transport promise; await the
-        // transport directly so the device switch finishes before connect.
-        await Promise.resolve(
-          (client.transport.updateMic as (id: string) => unknown)(stored),
-        );
-      }
-      await micApp.connect();
+      await captureSession.prepareMicrophone(signal, async (check) => {
+        if (client.needsInit()) await client.initDevices();
+        check();
+        const stored = readDeviceId("mic");
+        if (stored) {
+          // The client's updateMic drops the transport promise; await the
+          // transport directly so the device switch finishes before connect.
+          await Promise.resolve(
+            (client.transport.updateMic as (id: string) => unknown)(stored),
+          );
+        }
+        check();
+        await micApp.connect();
+        check();
+      }, () => client.disconnect());
     } catch (error) {
+      if (signal.aborted) throw error;
       setMicError(
         t("errors.micSession", {
           message: error instanceof Error ? error.message : String(error),
         }),
       );
     }
-  }, [manager, micApp, t]);
+  }, [captureSession, micApp, t]);
 
+  const micDisconnectRef = useRef(micApp.disconnect);
+  micDisconnectRef.current = micApp.disconnect;
   const stopSession = useCallback(() => {
     stopCapture();
-    void micApp.disconnect();
-  }, [micApp, stopCapture]);
+    void micDisconnectRef.current();
+  }, [stopCapture]);
+  useEffect(() => () => {
+    captureSession.stop();
+    void micDisconnectRef.current();
+  }, [captureSession]);
 
   /**
    * 清掉上一场留在界面上的转写和错误。新一场在真正连上之前也要先清，
@@ -216,8 +231,9 @@ export function useLiveInterview({
     extraMessages,
     interimText,
     micClient: micApp.client,
-    micError,
-    clearMicError: () => setMicError(null),
+    captureError,
+    micError: micError ?? micApp.error,
+    clearMicError: () => { setMicError(null); micApp.clearError(); },
     disconnectSignal,
   };
 }

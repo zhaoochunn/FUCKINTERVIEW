@@ -130,3 +130,23 @@ INTERVIEW_PYTHON="$PWD/.venv/bin/python" npm --prefix desktop start
   Ubuntu、Windows 已通过，macOS 尚排队；不要把这个快照当成所有平台已通过。
 
 桥接里程碑提交后暂停，等待用户 M5 反馈，再安排完整双路 SmallWebRTC / Pipecat / ASR / LLM 验收。
+
+## M2 核心 M5 验收通过（用户反馈）
+
+用户确认 Apple Silicon M5 实机核心验收通过，并授权 M3。此次反馈没有另行指定精确 SHA，
+不将这些结果归给后续 M3 修改。
+
+| 人工实测项目 | 用户报告 |
+| --- | --- |
+| ScreenCaptureKit 系统音频 | 采集正常 |
+| PCM → Electron IPC → AudioWorklet → MediaStream | 桥接成功 |
+| MediaStream 信号 | RMS 非零，数据持续更新 |
+| 静音来源对照 | 暂停音源 RMS 下降，恢复播放 RMS 重新上升 |
+| 停止/重新启动检查 | 正常 |
+| 停止后的进程观察 | `pgrep -fl SystemAudioProbe` 无残留 |
+| 先前 M1 证据 | 25/25 轮，丢包/序号缺失均为 0 |
+
+这是用户提供的真实核心桥接验收，区别于上文 Linux 合成测试。暂停音源对照仅证明报告的 RMS 变化，
+不是所有静音/长期无 PCM 场景均已通过。权限撤销/恢复、设备切换、60 分钟稳定性、会议软件兼容性、
+完整窗口/网络故障注入仍待验。真实 ASR、LLM、双路归属与完整历史保存留给
+[M3 实时工作流验收](macos-phase2-live-interview.md)。

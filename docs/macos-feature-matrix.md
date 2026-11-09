@@ -83,6 +83,7 @@
 完整功能矩阵是移植范围与验收计划，不是完成声明。用户已确认 Phase 1 当前验收门禁通过，
 并授权 [Phase 2.M1](macos-phase2-audio-prototype.md)：独立 ScreenCaptureKit 原生 PCM 原型与验证器。
 M1 已获用户反馈：M5 上 25/25 轮非静音 PCM、48 kHz 双声道、无丢包；权限撤销等子项仍待验。
-用户授权 [M2 PCM → MediaStream 桥接](macos-phase2-media-stream.md)，桥接集成与 ASR/LLM 均待新的实机验证。
+用户已确认 [M2 PCM → MediaStream 核心桥接](macos-phase2-media-stream.md) 实机通过：RMS 随暂停/播放变化、重启正常、停止无 helper 残留。
+用户授权 [M3 实时工作流](macos-phase2-live-interview.md)；真实 ASR/LLM、双路与历史端到端仍待 M5 验收。
 系统音频、悬浮/置顶/透明度、全局快捷键、安装包与可靠防截屏均不标记已可用。
-矩阵目标全部保留；本轮桥接完成后暂停，等待 M5 反馈，再进入完整实时工作流验收。
+矩阵目标全部保留；M3 首个可验证版本交付后暂停，等待真实供应商测试反馈。

@@ -5,7 +5,7 @@ import type {
   PipecatClientOptions,
   TransportConnectionParams,
 } from "@pipecat-ai/client-js";
-import { PipecatClient } from "@pipecat-ai/client-js";
+import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -221,6 +221,15 @@ export function usePipecatApp(
         const setupAttempt = {};
         attemptRef.current = setupAttempt;
         setClient(pcClient);
+        // Provider errors must surface even when the SDK labels them non-fatal.
+        // Do not echo provider payloads (they may include credentials) into UI/logs.
+        pcClient.on(RTVIEvent.Error, () => {
+          if (activeClientRef.current !== pcClient) return;
+          attemptRef.current = null;
+          connectingRef.current = null;
+          setError(i18n.t("errors.pipelineService"));
+          void pcClient.disconnect().catch(() => {});
+        });
         optionsRef.current.onClient?.(pcClient);
 
         if (optionsRef.current.initDevicesOnMount) {

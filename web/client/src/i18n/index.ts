@@ -310,6 +310,9 @@ const zh = {
       "没有获取到系统音频，请选择「整个屏幕」并勾选「分享系统音频」",
     captureUnsupported: "当前浏览器不支持共享系统音频",
     macosPhase1: "macOS Phase 1 仅支持桌面基础功能，系统音频采集尚未实现。",
+    systemAudioEnded: "系统音源已结束。请检查录制权限及音源，然后重新开始。",
+    micNotReady: "麦克风通道尚未就绪；系统音频继续运行，请结束本场后重试。",
+    pipelineService: "语音服务返回错误，请检查 ASR/LLM 配置、额度及网络后重试。",
     micSession: "麦克风会话启动失败：{{message}}",
   },
   header: {
@@ -1113,6 +1116,9 @@ const en = {
       "No system audio was captured. Share the entire screen and tick “Share system audio”.",
     captureUnsupported: "This browser cannot share system audio",
     macosPhase1: "macOS Phase 1 provides desktop basics only. System audio capture is not implemented yet.",
+    systemAudioEnded: "System audio ended. Check recording permissions and the audio source, then restart.",
+    micNotReady: "The microphone lane is not ready. System audio remains active; end this session before retrying.",
+    pipelineService: "A speech service returned an error. Check ASR/LLM settings, quota and network, then retry.",
     micSession: "Microphone session failed: {{message}}",
   },
   header: {
