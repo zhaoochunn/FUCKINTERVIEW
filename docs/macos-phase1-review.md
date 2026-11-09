@@ -47,6 +47,27 @@ macOS [job 129178319147](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/run
 本轮完整功能盘点与后续方案见 [macOS 功能矩阵](macos-feature-matrix.md)。
 本轮范围不包括 Phase 2 采集编码、悬浮窗等新功能、安装包或发布。
 
+### 后续 M5 fixture 回归（5d371d4）
+
+用户在 M5 再测为 Python 95 passed、桌面 34 passed/1 failed、前端 5 passed、构建成功。
+失败位于原 process-lifecycle.test.js:164 的正 PID 断言，尚未进入显式清理验证。
+旧 fixture 把 stdout 第一个 data chunk 当完整 PID，存在启动输出污染/字节分块导致误解析的
+确定性测试通信缺陷；隔离复现分别得到 NaN 和错误的部分 PID。
+原始 M5 chunk 未被捕获，具体触发内容未知；不能从当前证据认定 process-lifecycle.js 有新运行时缺陷。
+
+`5d371d4` 用专用 IPC 与后代→父进程→测试的双层就绪握手取代 stdout 解析，
+保留真实后代、父进程退出及 ESRCH 原断言；加入有界诊断、超时、无效消息和提前退出回归。
+运行时进程管理文件保持不变。Linux 桌面 39 项全部通过，真实进程树重复 10/10 通过；
+该修复后的 M5 结果仍待用户提供，命令见 [M5 复测文档第 10 节](macos-phase1.md#10-m5-父子进程-fixture-失败与修复复测)。
+
+`5d371d4` 的实际 CI 已完成：Backend [run 42624082137](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42624082137)
+success；平台 [run 42624080268](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42624080268)
+中 Ubuntu、macOS ARM64、Windows 均 success。macOS 桌面 39 pass/0 fail/0 skipped，
+Windows 为 37 pass/0 fail/2 个真实 POSIX 用例按平台跳过；各平台前端测试与构建通过。
+macOS [job 129183227368](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42624080268/job/129183227368)
+日志确认目标真实后代清理用例通过。云端 Python 95 passed、前端 5 passed、构建通过。
+CI 不替代用户 M5 的新复测；文档提交的新检查按其 SHA 另记。
+
 ## 审核证据与边界
 
 - 读取了 PR API 的文件列表、状态、head SHA、实际检查结果，以及本地与该 SHA 一致的完整 diff。

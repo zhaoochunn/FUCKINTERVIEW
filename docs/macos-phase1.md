@@ -296,3 +296,58 @@ INTERVIEW_PYTHON="$PWD/.venv/bin/python" npm --prefix desktop start
 
 完整功能覆盖范围、状态与下一阶段门禁见 [macOS 功能矩阵](macos-feature-matrix.md)。
 上述只是待执行清单，不是实机通过声明。PR 仍保持 Draft，等待用户确认。
+
+## 10. M5 父子进程 fixture 失败与修复复测
+
+用户再次报告 M5 / macOS 27.0.1 / Python 3.12.14 / Node 24.21.0：Python 95 passed，
+桌面 34 passed、1 failed，前端 5 passed，Vite 构建成功。唯一失败为
+`POSIX shutdown reaches a real descendant and waits for its parent to reap it`，
+原 process-lifecycle.test.js:164 的 `assert.ok(pid > 0)` 为 false。
+这是一条新的实机结果，不能继续把该版本说成 M5 自动化全部通过；更早的 124 passed 仍作为历史记录。
+
+### 根因与证据边界
+
+旧 fixture 用 stdout 第一个 data chunk 执行 Number(trim())。stdout 是字节流，
+一次 data 事件不保证是完整 PID 或只包含 PID。云端隔离复现：首块启动文本得到 NaN；
+PID 分块为 `12` / `345\n` 会误读为 12，甚至可能让正整数断言误通过。
+用户未提供当时 stdout 原始内容，不能断言 M5 首块具体是哪种文本或分块，
+也不能从此断言推断 spawn 失败、macOS 权限故障或运行时清理失效。
+该断言在显式 `await stop()` 及父进程/后代清理断言之前；此次没有新的 EPERM 证据。
+
+### 修复内容
+
+修复提交 `5d371d4`：测试 fixture 改为独立 IPC 握手，先确认真实后代进程已运行并发回
+自身 PID，再由父进程发送版本化就绪消息。检查消息来源父 PID、后代 PID 的安全整数/正值
+及不同于父 PID；stdout 不再作为控制通道。
+
+保留原有真实父子进程组、TERM 清理、父进程 exitCode=0、后代 PID 已 ESRCH 的断言。
+失败清理改为 test.after，使清理错误不覆盖原始断言。新增启动失败、提前退出、IPC 断开、
+消息无效和超时诊断，包含 PID、退出码/信号及有界 stdout/stderr；不读取或输出进程环境变量。
+测试支持文件位于 desktop/test-support，不在桌面应用的 electron/**/* 打包范围。
+没有改动运行时 process-lifecycle.js，没有跳过原失败用例，也没有放宽清理要求。
+
+云端 Linux：Python 95 passed、桌面 39 passed、前端 5 passed，构建通过；目标真实进程树
+用例重复 10 次均通过。`5d371d4` 的 macOS ARM64 CI 桌面 39 项全部通过，目标用例通过；
+Ubuntu/Windows CI 和各平台前端测试、构建也通过，详细证据见审核记录。
+Windows 的 2 个真实 POSIX 用例按平台跳过，不计为通过；不将 CI 视为新 M5 实测。
+
+### M5 重新执行命令
+
+保留个人改动后，从仓库根目录执行：
+
+```bash
+git fetch origin
+git switch feature/macos-arm64
+git pull --ff-only origin feature/macos-arm64
+git log -1 --oneline
+node --test --test-name-pattern="POSIX shutdown reaches a real descendant" desktop/electron/process-lifecycle.test.js
+node --test desktop/electron/process-fixture.test.js
+npm --prefix desktop test
+.venv/bin/python -m pytest -q
+npm --prefix web/client test
+npm --prefix web/client run build
+```
+
+如果仍失败，请保留完整失败段、当前 commit、fixturePid/退出码/信号和有界 stdout/stderr，
+发送前先遮盖可能出现的个人路径或凭据。不要使用 sudo、killall 或关闭系统保护。
+H2/M1 的原生窗口/进程复测仍按第 9 节逐项记录，不能因修复 fixture 自动标记通过。
