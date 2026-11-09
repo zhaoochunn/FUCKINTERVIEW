@@ -16,7 +16,10 @@ function setup({ failStart = false, blockModule = false } = {}) {
     close() { this.state = 'closed'; state.closed++; return Promise.resolve(); }
     createMediaStreamDestination() { return { stream, channelCount: 2 }; }
   }
+  let processor: { onprocessorerror?: () => void };
   class Worklet {
+    onprocessorerror?: () => void;
+    constructor() { processor = this; }
     port = { onmessage: undefined as ((e: { data: unknown }) => void) | undefined,
       postMessage: (data: { type: string; sequence?: number }) => {
         if (data.type === 'audio') queueMicrotask(() => this.port.onmessage?.({ data: { type: 'ack', sequence: data.sequence } }));
@@ -36,7 +39,7 @@ function setup({ failStart = false, blockModule = false } = {}) {
   } } });
   const saved = ['window', 'AudioContext', 'AudioWorkletNode'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   Object.assign(globalThis, { window: host, AudioContext: Context, AudioWorkletNode: Worklet });
-  return { state, host, track, release: () => release(),
+  return { state, host, track, lateError: () => processor.onprocessorerror?.(), release: () => release(),
     error: () => listener?.({ token: currentToken, type: 'error', message: 'permission revoked' }),
     restore() { for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); } } };
 }
@@ -46,7 +49,9 @@ test('native stream readiness waits for worklet ACK; manager track.stop tears do
   try {
     const capture = await captureSystemAudio();
     assert.equal(f.state.ack, 1); assert.equal(f.state.speakerConnections, 0);
+    let ended = 0; f.track.addEventListener("ended", () => { ended++; });
     capture.stream.getAudioTracks()[0].stop(); capture.dispose();
+    f.lateError(); assert.equal(ended, 0);
     assert.equal(f.state.stops, 1); assert.equal(f.state.closed, 1); assert.equal(f.state.removed, 1);
   } finally { f.restore(); }
 });

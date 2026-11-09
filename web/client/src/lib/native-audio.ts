@@ -41,6 +41,7 @@ export async function captureNativeAudio({ signal, onStats }: {
     if (started) void api.stop(token).catch(() => {});
   };
   const fail = (message: string) => {
+    if (disposed) return;
     rejectReady(new Error(message));
     // stop() doesn't emit ended. Notify the existing interview source listener explicitly.
     for (const track of destination?.stream.getTracks() ?? []) track.dispatchEvent(new Event('ended'));
