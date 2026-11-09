@@ -10,9 +10,9 @@
 扫描 desktop/electron、desktop/scripts、app、server.py、内置 Pipecat、web/client/src 及 CI。
 矩阵逐项区分可运行的业务入口、SDK 通用组件/未接线代码和用户新增目标，避免把文件存在当作功能完成。
 
-- **M5 部分验证**：仅限用户报告的旧功能提交 a7527f1，不扩展到后续修复或其他场景。
+- **M5 部分验证**：按各阶段文档中的实际用户反馈记录；Phase 1 当前门禁及 M1/M2 核心已获确认，不扩展到 M3 或未执行场景。
 - **保留/待验**：代码已有，尚无真实 macOS 端到端验收证据。
-- **待移植**：平台能力尚未接通；Phase 1 只给出明确不可用提示。
+- **待移植**：对应平台能力尚未接通；不从其他已验项目推定其可用。
 - **新增目标**：在当前基线未找到该功能的完整实现，仍纳入最终目标。
 - **基础件**：代码存在，但不是当前实时面试端到端能力。
 
@@ -20,10 +20,10 @@
 
 | ID / 功能 | 实际代码依据与当前状态 | macOS 实现方式/系统边界 | M5 验收标准 |
 | --- | --- | --- | --- |
-| A1 系统音频 | lib/capture.ts、main.js、use-live-interview.ts；Windows loopback 已有，Mac 待移植 | 优先 ScreenCaptureKit 原型，与 Electron 44 CoreAudio Tap 对照；必要时 Swift helper；不把 Windows loopback 当作 Mac 实现 | 已授权/拒绝/取消/撤权均正确；真实 PCM 非静音；连续 60 分钟，设备切换和采集停止可恢复 |
+| A1 系统音频 | lib/capture.ts、main.js、use-live-interview.ts；Windows loopback 已有；Mac M1/M2 核心采集/桥接实测通过，M3 待真实 API 验收 | 源码版采用 Swift ScreenCaptureKit helper → IPC/AudioWorklet/MediaStream；CoreAudio Tap 为评估备选；权限/设备/长时边界另验 | 已授权/拒绝/取消/撤权均正确；真实 PCM 非静音；连续 60 分钟，设备切换和采集停止可恢复 |
 | A2 候选人麦克风 | use-live-interview.ts 的 listen 会话、InterviewAudioCheck、DeviceSelect；保留/待验 | getUserMedia + TCC，独立于系统音频；沿用 SmallWebRTC | 分别转写候选人/面试官、不串路、不重复；内置/USB/蓝牙设备切换、拒绝后授权通过 |
 | A3 双路会话与连接 | lib/session-request.ts、SystemAudioMediaManager、server.py run_bot；保留/待验 | 同一 interviewId、两条 WebRTC；本机无 STUN 默认路径；重连与清理联动 | 20 次启停、断网/恢复、单路失败无另一条残留；结束时历史正确合并 |
-| A4 音量/增益/可视化 | capture.ts WebAudio、audio-visualizer、visualizer.ts；保留/待验 | 复用高通/限幅与增益，避免重复 AGC；原生桥接采样率需明确 | 安静/大音量/静音正常，无削顶或反馈；单独测量采集延迟与 CPU |
+| A4 音量/增益/可视化 | capture.ts WebAudio、audio-visualizer、visualizer.ts；保留/待验 | Windows/浏览器保留原处理链；Mac 原生 48kHz stereo 单位增益，不未经测量加入限幅；编码削顶风险待验 | 安静/大音量/静音正常，无削顶或反馈；单独测量采集延迟与 CPU |
 | A5 设备枚举/偏好/PTT | app-device-dock、preferences.ts、user-audio-control.ts；组件/保留待验 | 复用设备选择；PTT 是窗口 KeyboardEvent，不等同 OS 全局快捷键 | 已接线入口设备选择与偏好重启保留；焦点/输入控件/PTT 释放不误触发 |
 | B1 ASR 供应商 | app/providers.py build_stt；Qwen、MiniMax、Deepgram、OpenAI；保留/待验 | 保持服务实现和网络协议，按供应商安装可选 SDK；密钥由用户本地填写 | 每个声明支持的供应商真实语音识别、中文术语、超时/401/限流与重试有可理解状态 |
 | B2 LLM 流式答案 | providers.py build_llm、materials_ai.py、server.py；保留/待验 | 保持 OpenAI 兼容、Qwen、Anthropic 适配；不改无关提示词业务 | 真实问题到首字/完整答案，取消不中断下一轮；对每个声明支持的供应商测试 |
@@ -31,7 +31,7 @@
 | B4 问答命中与术语纠错 | server.py QaAnswer/TermCorrector/GlossaryPrompt；保留/待验 | 保持命中原文直出、未命中走 LLM、术语提示和纠错 | 已知命中/未命中/别名测试，不误改候选人原话；历史记录和显示一致 |
 | B5 TTS/机器人音频 | app/services/qwen_tts.py、providers.py build_tts、BotAudioOutput；基础件 | 当前 live/listen 管线不用 TTS（server.py 注释与处理器链）；若后续恢复语音模式，独立设计开关和反馈隔离 | 仅在模式被正式接通后验收生成/播放/中断；不把文本回答通过等同 TTS 通过 |
 | C1 主窗口/菜单/Dock/托盘 | main.js、platform.js、WindowControls；M5 部分验证 | 原生窗口与菜单，Dock/菜单栏恢复；AppKit 全屏/Spaces 需实测 | 补测最小化、全屏、缩放、Spaces、多显示器；已通过关窗/Dock/退出不覆盖全部 |
-| C2 后端生命周期 | main.js、backend.js、process-lifecycle.js；本轮修复待 M5 复测 | 独立进程组、TERM→KILL；EPERM 状态核查；异常退出先清理再串行恢复 | 正常/启动中退出、崩溃、组长退出但后代存活、恢复中退出；无旧端口/子进程残留 |
+| C2 后端生命周期 | main.js、backend.js、process-lifecycle.js；Phase 1 当前门禁已通过，异常注入待验 | 独立进程组、TERM→KILL；EPERM 状态核查；异常退出先清理再串行恢复 | 正常/启动中退出、崩溃、组长退出但后代存活、恢复中退出；无旧端口/子进程残留 |
 | C3 单实例/开发数据隔离 | main.js requestSingleInstanceLock、userData/sessionData；部分待验 | 保持单实例与 dev/production 目录边界 | 连续启动仅一个后端；现有窗口恢复；不读写正式版数据 |
 | C4 悬浮答题窗 | 当前 main.js 只有主窗口；**新增目标** | 后续轻量 BrowserWindow/面板复用答案状态，受控 IPC；是否跨 Spaces 单独验证 | 显示实时答案、与主窗同步、可恢复位置、多屏和关闭行为明确 |
 | C5 窗口置顶 | 未发现 alwaysOnTop/setAlwaysOnTop；**新增目标** | Electron always-on-top；全屏/其他应用/Spaces 存在层级限制 | 普通窗口、全屏会议、多屏分别验证；明确不能覆盖的场景 |
@@ -85,5 +85,6 @@
 M1 已获用户反馈：M5 上 25/25 轮非静音 PCM、48 kHz 双声道、无丢包；权限撤销等子项仍待验。
 用户已确认 [M2 PCM → MediaStream 核心桥接](macos-phase2-media-stream.md) 实机通过：RMS 随暂停/播放变化、重启正常、停止无 helper 残留。
 用户授权 [M3 实时工作流](macos-phase2-live-interview.md)；真实 ASR/LLM、双路与历史端到端仍待 M5 验收。
-系统音频、悬浮/置顶/透明度、全局快捷键、安装包与可靠防截屏均不标记已可用。
+系统音频的已验证范围限于 M1/M2 核心采集与桥接；完整实时工作流、长时/权限/会议软件场景仍待验。
+悬浮/置顶/透明度、全局快捷键、安装包与可靠防截屏仍不标记已可用。
 矩阵目标全部保留；M3 首个可验证版本交付后暂停，等待真实供应商测试反馈。

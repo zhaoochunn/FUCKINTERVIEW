@@ -58,7 +58,12 @@ SmallWebRTC 服务端默认把解码后的输入重采样为 16kHz mono；真实
 - Linux 冒烟：随仓库的 Silero VAD 和 Smart Turn ONNX 模型初始化成功；并非 M5 自然语音推理或准确率验证。
 - 云端没有调用真实 ASR/LLM、没有个人 API Key、没有用户音频。GitHub Actions 按提交检查，不沿用旧 SHA 的全绿声明。
   首次 `3b4bd42` backend CI 在收集 WebRTC 测试时因缺 aiortc 失败；这是运行时依赖声明遗漏。补齐后的 `7365323`
-  [backend CI](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42647420440) 已通过；桌面多平台与原生构建另看对应检查，未自动标为全绿。
+  [backend CI](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42647420440) 已通过。
+  后续 `f4a9896` 的 push backend 通过，但 PR run `42647782423` 出现一次 `miss` 用例的 bot-output 断言失败：
+  测试仅等待数据库已有答案就关连接，再检查客户端交付，存在真实的断言时序错误。
+  修复为在原 12 秒上限内等待完整客户端答案与两路转写，再断开；增加固定 50ms 的客户端输出交付延迟以回归。
+  不跳过、不放宽原角色/保存/输出断言；本地修复后 5 次重复合计 15/15 用例通过。
+  `7365323` 桌面 CI 的 Ubuntu/Windows 已通过、macOS 尚排队；原生构建另看对应检查，未自动标为全绿。
 
 ## M5 更新与启动
 

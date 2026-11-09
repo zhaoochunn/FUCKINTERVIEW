@@ -116,7 +116,14 @@ def test_dual_lane_rtp_to_transcript_answer_and_history(tmp_path, monkeypatch, l
                     channel.send(json.dumps({'label':'rtvi-ai','type':'client-ready','id':'test'}))
                 @channel.on('message')
                 def received(message, i=i):
-                    if isinstance(message, str) and message.startswith('{'): messages[i].append(json.loads(message))
+                    if isinstance(message, str) and message.startswith('{'):
+                        packet = json.loads(message)
+                        if packet.get('type') == 'bot-output':
+                            # Reproduce DB-before-client-delivery deterministically. Closing
+                            # on a history write must not count as receiving the answer.
+                            asyncio.get_running_loop().call_later(0.05, messages[i].append, packet)
+                        else:
+                            messages[i].append(packet)
                 await peer.setLocalDescription(await peer.createOffer())
                 connection = SmallWebRTCConnection(ice_servers=[]); connections.append(connection)
                 await connection.initialize(peer.localDescription.sdp, peer.localDescription.type)
@@ -128,12 +135,17 @@ def test_dual_lane_rtp_to_transcript_answer_and_history(tmp_path, monkeypatch, l
                 # Ensure deterministic factory assignment, without relying on a sleep duration.
                 async with asyncio.timeout(5):
                     while len(asrs) <= i: await asyncio.sleep(0.01)
+            expected_answer = "问答库原文。" if lookup == "hit" else "模拟答案第一句。第二句。"
             async with asyncio.timeout(12):
                 while True:
                     rows = sessions.connect().execute('SELECT id FROM sessions').fetchall()
                     detail = sessions.get_session(rows[0]['id']) if rows else None
                     turns = detail['turns'] if detail else []
-                    if any(t['role']=='ai' for t in turns) and any(t['role']=='candidate' for t in turns): break
+                    history_ready = any(t['role']=='ai' for t in turns) and any(t['role']=='candidate' for t in turns)
+                    delivered_answer = ''.join(m.get('data', {}).get('text', '') for m in messages[0] if m.get('type') == 'bot-output')
+                    transcripts_delivered = all(any(m.get('type') == 'user-transcription' for m in lane) for lane in messages)
+                    if history_ready and delivered_answer == expected_answer and transcripts_delivered:
+                        break
                     for task in tasks:
                         if task.done(): task.result()
                     await asyncio.sleep(0.02)
@@ -157,6 +169,7 @@ def test_dual_lane_rtp_to_transcript_answer_and_history(tmp_path, monkeypatch, l
             assert len(warm_tasks) == 3 and all(t.done() for t in warm_tasks)
             assert all(any(m.get('type') == 'user-transcription' for m in lane) for lane in messages)
             assert any(m.get('type') == 'bot-output' for m in messages[0])
+            assert delivered_answer == expected_answer
             assert not any(m.get('type') == 'bot-output' for m in messages[1])
         finally:
             for tone in tones: tone.stop()
