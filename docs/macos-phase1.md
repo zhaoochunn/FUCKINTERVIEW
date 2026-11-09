@@ -247,6 +247,9 @@ GitHub Actions 已实际执行 Ubuntu/Windows/macOS 基础自动化矩阵，但�
 ### 已知限制与后续建议
 
 - 保留 Phase 1 范围：macOS 系统音频、原生安装包、签名/公证、可靠防截屏均不标记为可用。
-- 审核发现 CI 和异常后端恢复问题，详见审核记录；本轮只记录问题，没有修改功能代码。
+- 完整 CI 日志已确认 Windows 路径断言失败，以及 macOS 进程组探测 `kill EPERM`。
+  macOS PR 桌面任务为 22 pass/2 fail，Windows 为 22 pass/1 fail/1 skipped，
+  与本节用户报告的 M5 本机 124 passed 分开记录。另有异常后端恢复问题，详见审核记录；
+  本轮只记录问题，没有修改功能代码。
 - 合并前先定位并解决 CI 失败，再补齐上述启动、权限与 Windows 验收，并复测获准的修复。
 - 不自动将 Draft 改为 Ready for Review，不自动合并；等待用户确认后才决定后续工作。

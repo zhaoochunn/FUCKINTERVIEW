@@ -34,10 +34,57 @@ PR 的 Windows、macOS 任务均失败在 `Run npm --prefix desktop test`，退�
 任务注释另含旧 Actions Node 20 运行时弃用警告；macOS 注释还有 ARM64 runner 容量提示。
 这些提示本身不能解释测试失败。
 
-完整日志下载被 `results-receiver.actions.githubusercontent.com` 的代理 403 阻止，
-因此 macOS 的具体失败断言仍未查明，也不能确认 Windows 是否还有路径断言以外的失败。
-已读取任务步骤和 check-run annotations；它们仅提供失败步骤与退出码。
-文档提交触发的新检查是另一组运行，不能沿用上述提交的结果。
+初次审核时，日志下载被 `results-receiver.actions.githubusercontent.com` 的代理 403 阻止。
+本次已在新实例确认该域名白名单生效，并读取下述 `329d187` 的 Windows/macOS 完整任务日志，
+以及同一提交 push 运行的失败步骤日志。以下定位取代此前“macOS 失败断言未查明”的结论。
+上表 `a7527f1` 的历史结果仍单独保留，不把新运行的错误细节倒推为旧运行的完整证据。
+
+### 完整日志复核（对应文档提交 329d187，功能代码仍为 a7527f1）
+
+| 任务 | 环境与结果 | 日志证据 |
+| --- | --- | --- |
+| PR：Windows | Windows Server 2025 10.0.26100 x64，Node 24.22.2、Python 3.12.10；24 项中 22 pass、1 fail、1 skipped | [job 129166725171](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42619216955/job/129166725171) |
+| PR：macOS | macOS 26.7.2，image macos-26-arm64 20261102.0473.1，Node 24.22.2、Python 3.12.10 ARM64；24 项中 22 pass、2 fail、0 skipped | [job 129166724724](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42619216955/job/129166724724) |
+| 同提交 push：Windows | 22 pass、1 fail、1 skipped；相同路径断言失败 | [job 129166698478](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42619209127/job/129166698478) |
+| 同提交 push：macOS | 23 pass、1 fail、0 skipped；强制退出测试仍报 kill EPERM，后端 fixture 启停测试通过 | [job 129166697959](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42619209127/job/129166697959) |
+
+两次运行的后端工作流和 Ubuntu 平台任务均通过；Windows/macOS 平台任务后续前端测试、
+npm ci 和构建均 skipped。未重新运行 CI，也未更改依赖或测试以使其通过。
+CI 环境与用户 M5 的 macOS 27.0.1、Node 24.21.0、Python 3.12.14 不同，不能相互替代。
+
+Windows 日志（2026-11-09 20:42:37，北京时间）明确记录：
+
+```text
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal
+actual: '\\user\\appData\\interview-desktop-dev\\data'
+expected: '/user/appData/interview-desktop-dev/data'
+at TestContext.<anonymous> (.../desktop/electron/main.test.js:86:10)
+```
+
+macOS PR 日志（2026-11-09 20:43:00，北京时间）记录两个错误：
+
+```text
+test at electron/backend.test.js:12:1
+Error: kill EPERM
+  at alive (.../desktop/electron/process-lifecycle.js:14:13)
+  at .../desktop/electron/process-lifecycle.js:30:10
+  at stopBackend (.../desktop/electron/backend.js:190:30)
+  at stopAll (.../desktop/electron/backend.js:196:25)
+  at TestContext.<anonymous> (.../desktop/electron/backend.test.js:24:11)
+
+test at electron/process-lifecycle.test.js:62:1
+Error: kill EPERM
+  at alive (.../desktop/electron/process-lifecycle.js:14:13)
+  at waitUntilGone (.../desktop/electron/process-lifecycle.js:25:14)
+  at .../desktop/electron/process-lifecycle.js:49:16
+  at async TestContext.<anonymous> (.../desktop/electron/process-lifecycle.test.js:73:5)
+```
+
+分类结论：Windows 是确定的测试代码跨平台缺陷；macOS 是运行时进程组探测与当前
+macOS 环境不兼容，已定位到应用清理代码，不应当作普通 CI 下载故障忽略。
+日志没有提供 Node/Python 模块缺失、Electron 下载失败或依赖解析失败的证据。
+但是，单凭 EPERM 不能断言 runner 限制了权限、进程仍存活、出现僵尸进程，或 Node 本身存在缺陷。
+没有进程 PID/PGID、UID、退出事件与进程状态的同步记录，底层触发条件仍需目标 Mac/runner 诊断。
 
 ## 发现的问题
 
@@ -45,18 +92,37 @@ PR 的 Windows、macOS 任务均失败在 `Run npm --prefix desktop test`，退�
 
 未发现有证据支持的 Critical 问题。静态审核不能证明不存在所有安全问题。
 
-### High — H1：跨平台 CI 失败，且 Windows 测试含确定的平台路径缺陷
+### High — H1：Windows 测试含确定的平台路径缺陷
 
 - 位置：`desktop/electron/main.test.js:71`、`:86`；CI 入口
   `.github/workflows/desktop-platform.yml:26`。
 - 原因：测试仅模拟 `process.platform`，仍导入宿主 `node:path`。Windows 上运行
   macOS 分支测试时，`path.join` 返回 `\\user\\appData\\interview-desktop-dev\\data`，
   但断言固定比较 `/user/appData/interview-desktop-dev/data`。
-- 证据：内存中的 Win32 路径语义探针得到不相等结果；实际 Windows CI 在桌面测试步骤失败。
-  不能在缺少完整日志时声称这是唯一失败原因。
-- 建议：统一测试的路径平台语义与期望值，补齐跨平台测试隔离；获取失败日志，分别定位
-  macOS 和 Windows 的其他错误。macOS 曾成功后失败，应调查时序/环境差异，而非直接认定是偶发错误。
-- 门禁：必须在合并前解决 CI 红灯；修复需另获批准，本轮未改测试或功能。
+- 证据：Win32 内存探针与两次实际 Windows 任务日志一致。所读两个 Windows 桌面任务均只有
+  该项失败；POSIX 实进程测试按平台明确跳过 1 项，不能计为通过。
+- 建议：统一测试的路径平台语义与期望值，补齐跨平台测试隔离；不要把它误判为 Windows UI 功能损坏。
+- 门禁：必须在合并前修复并核查 Windows CI；修复需另获批准，本轮未改测试或功能。
+
+### High — H2：macOS 进程组状态探测抛出 EPERM，清理流程失败
+
+- 位置：`desktop/electron/process-lifecycle.js:14`、`:15`、`:25`、`:30`、`:49`；
+  调用链 `desktop/electron/backend.js:190`、`:196`；失败测试为
+  `desktop/electron/backend.test.js:24` 和 `desktop/electron/process-lifecycle.test.js:73`。
+- 已确认的代码原因：`alive()` 通过 `process.kill(-child.pid, 0)` 检查进程组，仅把 ESRCH
+  当作结束，其余异常直接抛出。PR 的普通退出清理以及强制退出后的轮询都在这里遇到 EPERM。
+  强制退出测试的堆栈位于第 49 行，未到第 74 行 signalCode 断言；因此不能把此前提出的
+  signalCode 通知顺序排查点当作本次已确认根因。
+- Apple 公开 XNU 源码的 [`killpg1`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c)
+  在遍历中排除僵尸进程，并可在没有可命中成员时返回 EPERM。这说明 EPERM 不必然代表
+  “缺少管理员权限”。这份源码是语义参考，不等于已经证明该 CI 内核版本或当时进程正处于该状态。
+- 证据限制：PR 中后端 fixture 的最终堆栈来自 finally 内 `stopAll()`，可能覆盖 try 中先前的错误；
+  不能据此断言该项启动/请求的每个步骤都通过。push 中该项通过而强制退出仍失败，表明失败
+  随退出路径/时序变化，但日志不足以证明确切竞争条件。
+- 建议：基于 ChildProcess exit/close 与明确的进程组所有权设计清理状态机，记录退出/探测顺序，
+  区分探测结果不确定与发送终止信号失败；验证正常退出、TERM 超时、KILL、组长先退出且
+  子进程仍存活等场景。不应简单把所有 EPERM 当作已退出，也不应使用 sudo 或降低系统安全策略。
+- 门禁：合并前必须解决这一运行时代码兼容问题并在 CI/M5 验证，不能仅跳过测试或反复重跑。
 
 ### Medium — M1：后端就绪后异常退出，Dock 恢复仍复用失效服务
 
@@ -97,12 +163,11 @@ PR 的 Windows、macOS 任务均失败在 `Run npm --prefix desktop test`，退�
 - 构建：本 PR 没有新增 macOS 安装包或签名配置，现有 dist 仍为 Windows NSIS；符合 Phase 1 边界。
 - 能力：macOS 系统音频在入口被拒绝，内容保护开关不显示；不宣称这些功能已可用。
 - 测试覆盖：现有 main double 把单实例锁固定为 true，不覆盖锁失败路径；没有运行期后端崩溃恢复测试。
-  POSIX 强制退出测试以进程组消失后立即检查 signalCode，存在事件通知顺序的排查点，
-  但未获得 macOS 失败断言，不能认定其为本次 macOS CI 根因。
+  完整 CI 日志确认当前 macOS 强制退出测试失败于进程组探测，而非 signalCode 断言。
 
 ## 合并建议与 Phase 2 前置条件
 
-当前建议保留 Draft，不建议合并。先处理 H1，修复并复测 M1，再补齐启动中立即退出、
+当前建议保留 Draft，不建议合并。先处理 H1/H2，修复并复测 M1，再补齐启动中立即退出、
 单实例限制、完整窗口操作、麦克风拒绝/重新授权及 Windows 实机回归。重新查看新 head 的 CI，
 不得仅重跑直到偶然变绿。用户确认前不更改 Draft 状态、不合并、不开始 Phase 2。
 
