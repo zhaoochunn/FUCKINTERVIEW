@@ -43,8 +43,9 @@ test("silence, missing data, drops and cancelled cycles cannot pass signal valid
   const dropped = started(); dropped.consume(header, pcm); finish(dropped, { packets: 2, droppedPackets: 1 });
   assert.throws(() => dropped.finish({ cycles: 1 }), /dropped packets/);
   assert.throws(() => started().finish({ cycles: 1 }), /did not complete/);
-  const revoked = started(); revoked.consume(header, pcm); finish(revoked);
-  revoked.permission = "revoked";
+  const revoked = started(); revoked.consume(header, pcm);
+  revoked.consume({ type: "permission", screenRecording: "revoked" }, Buffer.alloc(0));
+  finish(revoked);
   assert.throws(() => revoked.finish({ cycles: 1 }), /permission/);
   const missing = started(); finish(missing, { packets: 0, frames: 0 });
   assert.throws(() => missing.finish({ cycles: 1 }), /No PCM/);

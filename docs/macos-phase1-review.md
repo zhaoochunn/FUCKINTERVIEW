@@ -1,5 +1,11 @@
 # Phase 1 最终审核记录
 
+当前状态：用户已提供 `f5766a4` 的 M5 Python 95 / 桌面 39 / 前端 5 项通过、构建成功，
+并确认启动、关窗/Dock、Command+Q 正常，未发现异常弹窗或明显进程残留，接受当前 Phase 1 门禁。
+异常注入等没有提供结果的项目仍待验。本文以下发现与日志为历史证据；当前验收记录见
+[Phase 1 第 11 节](macos-phase1.md#11-phase-1-当前验收门禁通过用户确认)。
+用户已授权 Phase 2.M1 独立采集原型，不代表授权直接接通全部 AI 工作流或合并 PR。
+
 记录日期：2026-11-09（Asia/Shanghai）。审核对象为 Fork
 [`zhaoochunn/FUCKINTERVIEW` 的 Draft PR #1](https://github.com/zhaoochunn/FUCKINTERVIEW/pull/1)，
 base `main`，head `feature/macos-arm64`，功能提交

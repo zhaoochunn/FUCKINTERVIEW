@@ -62,8 +62,9 @@ final class PacketWriter {
         lock.lock()
         guard !failed && pending < 16 else { lock.unlock(); return false }
         pending += 1; lock.unlock()
+        let encoded = packet
         queue.async {
-            do { try FileHandle.standardOutput.write(contentsOf: packet) }
+            do { try FileHandle.standardOutput.write(contentsOf: encoded) }
             catch { self.lock.lock(); self.failed = true; self.lock.unlock() }
             self.lock.lock(); self.pending -= 1; self.lock.unlock()
         }
@@ -113,6 +114,8 @@ final class AudioOutput: NSObject, SCStreamOutput {
               channels >= 1, channels <= 2, format.mSampleRate.isFinite,
               format.mSampleRate >= 8000, format.mSampleRate <= 96000,
               count <= 32768, count * channels * 4 <= 262144 else { throw ProbeError.invalidAudio }
+        let planar = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0
+        guard format.mBytesPerFrame == UInt32((planar ? 1 : channels) * 4) else { throw ProbeError.invalidAudio }
         var needed = 0
         CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sample, bufferListSizeNeededOut: &needed,
             bufferListOut: nil, bufferListSize: 0, blockBufferAllocator: nil,
@@ -147,7 +150,7 @@ final class AudioOutput: NSObject, SCStreamOutput {
             guard channelOffset == channels else { throw ProbeError.invalidAudio }
         }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-        guard pts.isValid, !pts.isIndefinite else { throw ProbeError.invalidAudio }
+        guard pts.isValid, !pts.isIndefinite, pts.seconds.isFinite else { throw ProbeError.invalidAudio }
         let ns = CMTimeConvertScale(pts, timescale: 1_000_000_000, method: .roundTowardZero).value
         guard ns >= 0 else { throw ProbeError.invalidAudio }
         packets += 1; frames += count
