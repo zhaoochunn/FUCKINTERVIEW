@@ -3,7 +3,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { spawn } = require("node:child_process");
+const path = require("node:path");
 const { createStopper, parseProcessGroup } = require("./process-lifecycle");
+const { waitForTreeReady } = require("../test-support/process-tree-fixture");
 
 test("POSIX sends TERM then KILL to its own group, even if leader has exited", async () => {
   const signals = [];
@@ -146,24 +148,15 @@ test("POSIX really terminates a child that ignores SIGTERM", {
 
 test("POSIX shutdown reaches a real descendant and waits for its parent to reap it", {
   skip: process.platform === "win32" ? "POSIX process groups only" : false,
-}, async () => {
-  const child = spawn(process.execPath, ["-e", `
-    const { spawn } = require('node:child_process');
-    const descendant = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
-    process.on('SIGTERM', () => {});
-    descendant.on('exit', () => process.exit(0));
-    descendant.once('spawn', () => console.log(descendant.pid));
-    setInterval(()=>{},1000);
-  `], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+}, async (t) => {
+  const child = spawn(process.execPath, [path.join(__dirname, "../test-support/process-tree-fixture.js"), "tree"],
+    { detached: true, stdio: ["ignore", "pipe", "pipe", "ipc"] });
   const stop = createStopper(child, { platform: "darwin", grouped: true });
-  try {
-    const pid = await new Promise((resolve, reject) => {
-      child.once("error", reject);
-      child.stdout.once("data", (chunk) => resolve(Number(chunk.toString().trim())));
-    });
-    assert.ok(pid > 0);
-    await stop();
-    assert.equal(child.exitCode, 0);
-    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
-  } finally { await stop(); }
+  // A teardown failure must not replace the original readiness/assertion error.
+  t.after(stop);
+  const pid = await waitForTreeReady(child);
+  assert.ok(pid > 0);
+  await stop();
+  assert.equal(child.exitCode, 0);
+  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
 });
