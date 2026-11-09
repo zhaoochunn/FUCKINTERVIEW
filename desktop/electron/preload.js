@@ -10,6 +10,13 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("desktop", {
   isDesktop: true,
   platform: process.platform,
+  storage: {
+    pickDirectory: (initial) => ipcRenderer.invoke("storage:pick-directory", initial),
+  },
+  permissions: {
+    status: () => ipcRenderer.invoke("permissions:status"),
+    requestMicrophone: () => ipcRenderer.invoke("permissions:request-microphone"),
+  },
   minimize: () => ipcRenderer.send("window:minimize"),
   toggleMaximize: () => ipcRenderer.send("window:toggle-maximize"),
   close: () => ipcRenderer.send("window:close"),
@@ -20,6 +27,7 @@ contextBridge.exposeInMainWorld("desktop", {
     return () => ipcRenderer.removeListener("window:maximized", handler);
   },
   privacy: {
+    supported: process.platform === "win32",
     getContentProtection: () =>
       ipcRenderer.invoke("privacy:get-content-protection"),
     setContentProtection: (enabled) =>

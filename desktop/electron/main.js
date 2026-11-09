@@ -22,12 +22,17 @@ const {
   nativeImage,
   session,
   shell,
+  systemPreferences,
 } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const { startBackend, stopAll, ROOT } = require("./backend");
 const { createUrlPolicy, normalizeOrigin, safeExternalUrl } = require("./url-policy");
+
+const { windowOptions, menuTemplate } = require("./platform");
+const { installDesktopServices, trustedSender } = require("./desktop-services");
+const IS_MAC = process.platform === "darwin";
 
 const IS_DEV = process.argv.includes("--dev");
 const BUILD_DIR = path.join(__dirname, "..", "build");
@@ -150,6 +155,8 @@ let mainWindow = null;
 let tray = null;
 let backend = null;
 let quitting = false; // 用户真的要退出（托盘菜单 / Ctrl+Q）
+let bootPromise = null;
+const startupAbort = new AbortController();
 let cleanedUp = false; // 后端已经收干净，可以放行退出
 // 本地服务的精确 Origin（端口是动态的），后端就绪后设置。
 const urlPolicy = createUrlPolicy(LOADING_PAGE);
@@ -168,7 +175,7 @@ function openExternalSafely(raw) {
   if (target) void shell.openExternal(target);
 }
 
-function createWindow() {
+function createWindow(initialUrl = LOADING_PAGE) {
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -178,8 +185,7 @@ function createWindow() {
     icon: ICON_PATH,
     backgroundColor: "#0a0a0a",
     show: false,
-    frame: false, // 标题栏由前端画
-    autoHideMenuBar: true,
+    ...windowOptions(process.platform),
     webPreferences: {
       preload: PRELOAD_PATH,
       contextIsolation: true,
@@ -200,9 +206,9 @@ function createWindow() {
     if (mainWindow === window) mainWindow = null;
   });
 
-  // 右上角关闭 = 收进托盘；真的退出走托盘菜单。
+  // Windows closes to tray; macOS closes the window and keeps the backend.
   window.on("close", (event) => {
-    if (quitting) return;
+    if (quitting || IS_MAC) return;
     event.preventDefault();
     window.hide();
   });
@@ -225,13 +231,22 @@ function createWindow() {
     openExternalSafely(url);
   });
 
-  void window.loadURL(LOADING_PAGE);
+  void window.loadURL(initialUrl).catch((error) => {
+    if (!window.isDestroyed()) console.error("[window] 加载失败", error);
+  });
   return window;
 }
 
 function showMainWindow() {
+  if (quitting) return;
   if (!mainWindow) {
-    void boot();
+    if (backend) {
+      mainWindow = createWindow(backend.url);
+    } else if (!bootPromise) {
+      bootPromise = boot().catch((error) => {
+        if (!quitting) dialog.showErrorBox("桌面启动失败", String(error.message || error));
+      }).finally(() => { bootPromise = null; });
+    }
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -248,7 +263,10 @@ function createTray() {
   if (tray) return;
   const icon = nativeImage.createFromPath(TRAY_ICON_PATH);
   // 兜底：托盘图标缺失时退回应用图标，避免托盘里出现一个空白占位。
-  tray = new Tray(icon.isEmpty() ? nativeImage.createFromPath(ICON_PATH) : icon);
+  const trayImage = icon.isEmpty() ? nativeImage.createFromPath(ICON_PATH) : icon;
+  const image = IS_MAC ? trayImage.resize({ width: 18, height: 18 }) : trayImage;
+  if (IS_MAC) image.setTemplateImage(true);
+  tray = new Tray(image);
   tray.setToolTip(APP_TITLE);
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -262,7 +280,8 @@ function createTray() {
 }
 
 function installWindowIpc() {
-  const windowOf = (event) => BrowserWindow.fromWebContents(event.sender);
+  const windowOf = (event) =>
+    trustedSender(event, mainWindow, isAppOrigin) ? mainWindow : null;
 
   ipcMain.on("window:minimize", (event) => windowOf(event)?.minimize());
   ipcMain.on("window:toggle-maximize", (event) => {
@@ -276,11 +295,12 @@ function installWindowIpc() {
     "window:is-maximized",
     (event) => windowOf(event)?.isMaximized() ?? false
   );
-  ipcMain.handle("privacy:get-content-protection", () => contentProtection);
+  ipcMain.handle("privacy:get-content-protection", (event) =>
+    Boolean(!IS_MAC && windowOf(event) && contentProtection));
   ipcMain.handle("privacy:set-content-protection", (event, enabled) => {
     // 只接受主窗口自己的请求；页面导航已被 URL 策略锁在本应用内。
-    if (!mainWindow || event.sender !== mainWindow.webContents) {
-      return contentProtection;
+    if (IS_MAC || !windowOf(event)) {
+      return false;
     }
     contentProtection = Boolean(enabled);
     savePrivacySettings();
@@ -296,6 +316,8 @@ function installWindowIpc() {
 function installDisplayMediaHandler() {
   session.defaultSession.setDisplayMediaRequestHandler(
     async (request, callback) => {
+      // Phase 1 has no macOS system-audio implementation.
+      if (IS_MAC) { callback({}); return; }
       // 只有本应用页面可以拿屏幕 + 系统环回音频，站外页面一律拒绝。
       if (!isAppOrigin(request.securityOrigin)) {
         callback({});
@@ -347,39 +369,9 @@ function installPermissionHandlers() {
 }
 
 function installMenu() {
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      {
-        label: "文件",
-        submenu: [{ label: "退出", accelerator: "Ctrl+Q", click: () => quitApp() }],
-      },
-      {
-        label: "编辑",
-        submenu: [
-          { role: "undo", label: "撤销" },
-          { role: "redo", label: "重做" },
-          { type: "separator" },
-          { role: "cut", label: "剪切" },
-          { role: "copy", label: "复制" },
-          { role: "paste", label: "粘贴" },
-          { role: "selectAll", label: "全选" },
-        ],
-      },
-      {
-        label: "视图",
-        submenu: [
-          { role: "reload", label: "刷新" },
-          { role: "toggleDevTools", label: "开发者工具" },
-          { type: "separator" },
-          { role: "resetZoom", label: "实际大小" },
-          { role: "zoomIn", label: "放大" },
-          { role: "zoomOut", label: "缩小" },
-          { type: "separator" },
-          { role: "togglefullscreen", label: "全屏" },
-        ],
-      },
-    ])
-  );
+  Menu.setApplicationMenu(Menu.buildFromTemplate(
+    menuTemplate(process.platform, APP_TITLE, quitApp)
+  ));
 }
 
 function backendLogPath() {
@@ -394,7 +386,8 @@ function backendLogPath() {
 
 /**
  * 防截屏/防录屏：Windows 上用 SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
- * 把窗口从系统级画面采集里排除；macOS 用 NSWindowSharingNone。
+ * 把窗口从系统级画面采集里排除。macOS Phase 1 不启用此功能；
+ * NSWindowSharingNone 不能可靠阻止 ScreenCaptureKit 采集。
  * 设置按开发版/构建版/安装版各自的 userData 分别保存。
  */
 let contentProtection = false;
@@ -427,7 +420,7 @@ function savePrivacySettings() {
 }
 
 function applyContentProtection(window) {
-  if (!window || window.isDestroyed()) return;
+  if (IS_MAC || !window || window.isDestroyed()) return;
   try {
     window.setContentProtection(contentProtection);
     console.log(`[privacy] contentProtection=${contentProtection}`);
@@ -481,6 +474,7 @@ function missingFrontend() {
 }
 
 async function boot() {
+  if (quitting) return;
   if (missingFrontend()) {
     app.quit();
     return;
@@ -498,16 +492,23 @@ async function boot() {
     const packaged = packagedBackendOptions();
     backend = await startBackend({
       onLog,
+      signal: startupAbort.signal,
       // 开发端 7870、构建产物 7871，安装版仍从 7860 起找空闲端口。
       port: !app.isPackaged ? DEV_PORT : BUILD_TREE_RUN ? BUILD_PORT : undefined,
       ...packaged,
       env: {
         ...(packaged.env || {}),
+        // Keep source-run macOS data outside the checkout; respect an explicit test directory.
+        ...(!app.isPackaged && IS_MAC ? {
+          INTERVIEW_DATA_DIR: process.env.INTERVIEW_DATA_DIR ||
+            path.join(app.getPath("userData"), "data"),
+        } : {}),
         INTERVIEW_CHANNEL: DEV_CHANNEL ? "dev" : "production",
       },
     });
   } catch (error) {
     log?.end();
+    if (quitting) return;
     const logPath = backendLogPath();
     dialog.showErrorBox(
       "本地服务没能启动",
@@ -529,11 +530,11 @@ async function boot() {
     await mainWindow.loadURL(backend.url);
     if (IS_DEV) mainWindow.webContents.openDevTools({ mode: "detach" });
   }
-  // 后端日志跟着窗口关闭一起收尾。
-  mainWindow?.once("closed", () => log?.end());
+  // macOS may close and recreate its window while keeping the same backend.
+  backend.child.once("close", () => log?.end());
 }
 
-app.setAppUserModelId(
+if (process.platform === "win32") app.setAppUserModelId(
   DEV_CHANNEL ? "com.fuckinterview.desktop.dev" : "com.fuckinterview.desktop"
 );
 
@@ -548,15 +549,17 @@ if (!app.requestSingleInstanceLock()) {
     installPermissionHandlers();
     installDisplayMediaHandler();
     installWindowIpc();
+    installDesktopServices({ ipcMain, dialog, systemPreferences,
+      platform: process.platform, getWindow: () => mainWindow, isAppOrigin });
     installMenu();
     createTray();
-    void boot();
+    showMainWindow();
 
     app.on("activate", () => showMainWindow());
   });
 
   app.on("window-all-closed", () => {
-    // 关窗只是收进托盘；真正退出由托盘菜单或 Ctrl+Q 触发。
+    // Keep the app/backend alive after a Mac window closes or Windows hides to tray.
     if (quitting) app.quit();
   });
 
@@ -565,10 +568,15 @@ if (!app.requestSingleInstanceLock()) {
     if (cleanedUp) return;
     event.preventDefault();
     // 就算后端还没走到「就绪」，也要把已经拉起的进程收掉。
-    stopAll().finally(() => {
+    startupAbort.abort();
+    Promise.resolve(bootPromise).then(() => stopAll()).then(() => {
       cleanedUp = true;
       backend = null;
       app.quit();
+    }).catch((error) => {
+      console.error("[app] 后端退出失败", error);
+      dialog.showErrorBox("后端退出失败", "请检查 backend.log 并确认 Python 进程已停止后退出。");
+      quitting = false;
     });
   });
 }

@@ -309,6 +309,7 @@ const zh = {
     noSystemAudio:
       "没有获取到系统音频，请选择「整个屏幕」并勾选「分享系统音频」",
     captureUnsupported: "当前浏览器不支持共享系统音频",
+    macosPhase1: "macOS Phase 1 仅支持桌面基础功能，系统音频采集尚未实现。",
     micSession: "麦克风会话启动失败：{{message}}",
   },
   header: {
@@ -1111,6 +1112,7 @@ const en = {
     noSystemAudio:
       "No system audio was captured. Share the entire screen and tick “Share system audio”.",
     captureUnsupported: "This browser cannot share system audio",
+    macosPhase1: "macOS Phase 1 provides desktop basics only. System audio capture is not implemented yet.",
     micSession: "Microphone session failed: {{message}}",
   },
   header: {

@@ -36,7 +36,8 @@ export function WindowControls({ className }: { className?: string }) {
     };
   }, [desktop]);
 
-  if (!desktop) return null;
+  // macOS uses the native traffic-light controls and title bar.
+  if (!desktop || desktop.platform === "darwin") return null;
 
   const maximizeLabel = maximized ? "还原" : "最大化";
 

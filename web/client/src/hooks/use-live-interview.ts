@@ -147,7 +147,8 @@ export function useLiveInterview({
             ? t("errors.captureCancelled")
             : error.code === "no-audio"
               ? t("errors.noSystemAudio")
-              : t("errors.captureUnsupported");
+              : t(window.desktop?.platform === "darwin"
+                ? "errors.macosPhase1" : "errors.captureUnsupported");
         throw new Error(message);
       }
       throw error;

@@ -173,6 +173,9 @@ function amplifyQuietAudio(
  * yields that tab's audio instead.
  */
 export async function captureSystemAudio(): Promise<CapturedSystemAudio> {
+  if (window.desktop?.platform === "darwin") {
+    throw new CaptureError("unsupported");
+  }
   if (!navigator.mediaDevices?.getDisplayMedia) {
     throw new CaptureError("unsupported");
   }
