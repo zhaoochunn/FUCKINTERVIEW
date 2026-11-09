@@ -79,13 +79,16 @@ test('audio IPC rejects subframes, other origins and windows, including ACK and 
   const window = { webContents: owner, isDestroyed: () => false };
   const calls = [];
   installNativeAudio({ ipcMain: { handle: (c, fn) => handles.set(c, fn), on: (c, fn) => listeners.set(c, fn) },
-    getWindow: () => window, isAppOrigin: (url) => url === frame.url,
+    getWindow: () => window, isAppOrigin: (url) => url === "http://127.0.0.1:7870/client/",
     capture: { start: (...a) => calls.push(['start', ...a]), stop: (...a) => calls.push(['stop', ...a]), ack: (...a) => calls.push(['ack', ...a]) } });
   for (const e of [{ sender: owner, senderFrame: { url: frame.url } }, { sender: {}, senderFrame: frame }]) {
     assert.throws(() => handles.get('native-audio:start')(e, token), /Untrusted/);
     assert.throws(() => handles.get('native-audio:stop')(e, token), /Untrusted/);
     listeners.get('native-audio:ack')(e, token, 1);
   }
+  frame.url = 'https://untrusted.invalid/';
+  assert.throws(() => handles.get('native-audio:start')({ sender: owner, senderFrame: frame }, token), /Untrusted/);
+  frame.url = 'http://127.0.0.1:7870/client/';
   assert.equal(calls.length, 0);
   const event = { sender: owner, senderFrame: frame };
   handles.get('native-audio:start')(event, token); listeners.get('native-audio:ack')(event, token, 1);

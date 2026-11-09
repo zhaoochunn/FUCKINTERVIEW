@@ -95,7 +95,7 @@ INTERVIEW_PYTHON="$PWD/.venv/bin/python" npm --prefix desktop start
    peak、overRangeSamples。仅 track=live 不构成有声证明。第一秒前可能尚无 worklet 聚合统计。
 4. 对照暂停音源/恢复播放，观察 RMS；不先把结果写成通过。没有声音时不能靠轨道存在判定成功。
 5. 停止后重启至少 20 次，包括在授权/初始化阶段立即停止。不能出现重复 helper、旧会话污染或持续占用录制指示器。
-6. 检查窗口关闭与 Dock 恢复、Cmd+Q、权限拒绝/撤销/重新授权、renderer 崩溃/重载、后端退出后的清理。
+6. 检查最小化/后台运行、窗口关闭与 Dock 恢复、Cmd+Q、权限拒绝/撤销/重新授权、renderer 崩溃/重载、后端退出后的清理。
    测试可能影响当前会话，先停止工作并保留资料；后端故障注入可先只观察错误路径，具体故障命令另行记录。
 7. 可在另一个终端仅查看进程元数据（不采集音频）：
 
@@ -123,6 +123,10 @@ INTERVIEW_PYTHON="$PWD/.venv/bin/python" npm --prefix desktop start
 - 模拟/合成证据不代表 M5 TCC、原生 IPC 传输调度、连续 helper 或真实系统音频已集成通过。
   **本轮 M2 的 M5 桥接测试、权限拒绝/撤销、Ctrl+C、静音对照、会议软件兼容性与完整 ASR/LLM 均待验。**
 - GitHub Actions 结果随提交核对；已有 desktop-platform 不会编译 Swift。新增原生 ARM64 编译 workflow
-  此前持续 queued、无 runner 分配，不能以旧 M1 实测替代新连续模式的编译/实测证据。
+  此前排队，本轮已在 `1a33cf5` 的 [ARM64 原生 CI](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42640144419)
+  完成 Swift 编译、ad-hoc 签名验证、arm64 架构检查及协议测试；CI 不申请 TCC 或真实采集。
+  `f14e8cd` 的 [backend CI](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42640286596) 已通过；
+  对应 [desktop-platform](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42640286811) 检查时
+  Ubuntu、Windows 已通过，macOS 尚排队；不要把这个快照当成所有平台已通过。
 
 桥接里程碑提交后暂停，等待用户 M5 反馈，再安排完整双路 SmallWebRTC / Pipecat / ASR / LLM 验收。
