@@ -30,7 +30,7 @@ test("graceful exit does not force kill and missing groups are harmless", async 
     } });
   await stop();
   assert.deepEqual(signals, ["SIGTERM"]);
-  await createStopper({ pid: 13 }, { grouped: true, kill() {
+  await createStopper({ pid: 13 }, { platform: "darwin", grouped: true, kill() {
     throw Object.assign(new Error(), { code: "ESRCH" });
   } })();
 });
@@ -54,7 +54,7 @@ test("Windows retains taskkill tree termination and reports spawn failure", asyn
 });
 
 test("termination failures remain visible", async () => {
-  await assert.rejects(createStopper({ pid: 99 }, { grouped: true, kill() {
+  await assert.rejects(createStopper({ pid: 99 }, { platform: "darwin", grouped: true, kill() {
     throw Object.assign(new Error("permission denied"), { code: "EPERM" });
   }, uid: 1, readGroup: async () => [{ uid: 2, state: "S" }] })(), /permission denied/);
 });
@@ -62,7 +62,7 @@ test("termination failures remain visible", async () => {
 test("Darwin EPERM with only zombies is confirmed using ps and child exit state", async () => {
   let reads = 0;
   await createStopper({ pid: 99, exitCode: 0, signalCode: null }, {
-    grouped: true, uid: 1, kill(pid, signal) {
+    platform: "darwin", grouped: true, uid: 1, kill(pid, signal) {
       assert.equal(signal, 0);
       throw Object.assign(new Error("probe denied"), { code: "EPERM" });
     }, readGroup: async () => { reads++; return [{ uid: 1, state: "Z+" }]; },
@@ -74,7 +74,7 @@ test("EPERM with a live owned descendant still terminates the group", async () =
   const signals = [];
   let live = true;
   await createStopper({ pid: 99, exitCode: 0, signalCode: null }, {
-    grouped: true, uid: 1, graceMs: 2, forceMs: 20, pollMs: 1,
+    platform: "darwin", grouped: true, uid: 1, graceMs: 2, forceMs: 20, pollMs: 1,
     kill(pid, signal) {
       if (signal === 0) throw Object.assign(new Error(), { code: "EPERM" });
       signals.push(signal);
@@ -85,14 +85,14 @@ test("EPERM with a live owned descendant still terminates the group", async () =
 });
 
 test("unreadable group state is an error, not successful termination", async () => {
-  await assert.rejects(createStopper({ pid: 99 }, { grouped: true,
+  await assert.rejects(createStopper({ pid: 99 }, { platform: "darwin", grouped: true,
     kill() { throw Object.assign(new Error(), { code: "EPERM" }); },
     readGroup: async () => { throw new Error("ps failed"); },
   })(), /Cannot determine process group state/);
 });
 
 test("EPERM while sending TERM is never ignored", async () => {
-  await assert.rejects(createStopper({ pid: 99 }, { grouped: true,
+  await assert.rejects(createStopper({ pid: 99 }, { platform: "darwin", grouped: true,
     kill(pid, signal) {
       if (signal) throw Object.assign(new Error("signal denied"), { code: "EPERM" });
     },
@@ -101,7 +101,7 @@ test("EPERM while sending TERM is never ignored", async () => {
 
 test("EPERM while sending KILL after the grace period remains a failure", async () => {
   await assert.rejects(createStopper({ pid: 99, exitCode: 0, signalCode: null }, {
-    grouped: true, graceMs: 2, pollMs: 1,
+    platform: "darwin", grouped: true, graceMs: 2, pollMs: 1,
     kill(pid, signal) {
       if (signal === "SIGKILL") throw Object.assign(new Error("KILL denied"), { code: "EPERM" });
     },
@@ -112,7 +112,7 @@ test("group disappearance waits for the ChildProcess exit notification", async (
   const child = { pid: 99, exitCode: null, signalCode: null };
   const timer = setTimeout(() => { child.signalCode = "SIGTERM"; }, 10);
   try {
-    await createStopper(child, { grouped: true, forceMs: 100, pollMs: 1,
+    await createStopper(child, { platform: "darwin", grouped: true, forceMs: 100, pollMs: 1,
       kill() { throw Object.assign(new Error(), { code: "ESRCH" }); },
     })();
     assert.equal(child.signalCode, "SIGTERM");
@@ -139,7 +139,7 @@ test("POSIX really terminates a child that ignores SIGTERM", {
       child.once("error", reject);
       child.stdout.once("data", resolve);
     });
-    await createStopper(child, { grouped: true, graceMs: 20, forceMs: 1000, pollMs: 10 })();
+    await createStopper(child, { platform: "darwin", grouped: true, graceMs: 20, forceMs: 1000, pollMs: 10 })();
     assert.equal(child.signalCode, "SIGKILL");
   } finally { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }
 });
@@ -155,7 +155,7 @@ test("POSIX shutdown reaches a real descendant and waits for its parent to reap 
     descendant.once('spawn', () => console.log(descendant.pid));
     setInterval(()=>{},1000);
   `], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
-  const stop = createStopper(child, { grouped: true });
+  const stop = createStopper(child, { platform: "darwin", grouped: true });
   try {
     const pid = await new Promise((resolve, reject) => {
       child.once("error", reject);
