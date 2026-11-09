@@ -1,3 +1,4 @@
+import { captureNativeAudio } from "./native-audio.ts";
 /**
  * System-audio capture for the browser build.
  *
@@ -19,7 +20,7 @@ export class CaptureError extends Error {
 }
 
 export interface CapturedSystemAudio {
-  /** 做过音量归一化的音频流，交给 transport。 */
+  /** 交给 transport；macOS 原生桥接保持单位增益，浏览器/Windows 保留既有处理链。 */
   stream: MediaStream;
   /** 原始采集流；视频轨留在这里维持 Electron 的环回会话。 */
   source: MediaStream;
@@ -172,9 +173,10 @@ function amplifyQuietAudio(
  * user picks the entire screen and ticks "share system audio"; a browser tab
  * yields that tab's audio instead.
  */
-export async function captureSystemAudio(): Promise<CapturedSystemAudio> {
+export async function captureSystemAudio(options: Parameters<typeof captureNativeAudio>[0] = {}): Promise<CapturedSystemAudio> {
   if (window.desktop?.platform === "darwin") {
-    throw new CaptureError("unsupported");
+    if (!window.desktop.nativeAudio) throw new CaptureError("unsupported");
+    return captureNativeAudio(options);
   }
   if (!navigator.mediaDevices?.getDisplayMedia) {
     throw new CaptureError("unsupported");

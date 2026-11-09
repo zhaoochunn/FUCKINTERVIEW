@@ -12,6 +12,7 @@ struct Options {
     var cycles = 2
     var request = false
     var permissionOnly = false
+    var continuous = false
     var binary = false
     init(_ args: [String]) throws {
         var i = 0
@@ -20,6 +21,7 @@ struct Options {
             case "--request-permission": request = true
             case "--permissions": permissionOnly = true
             case "--pcm": binary = true
+            case "--continuous": continuous = true
             case "--duration", "--cycles":
                 let key = args[i]; i += 1
                 guard i < args.count, let number = Double(args[i]), number.isFinite else { throw ProbeError.invalidArguments }
@@ -32,6 +34,7 @@ struct Options {
             }
             i += 1
         }
+        guard !continuous || binary else { throw ProbeError.invalidArguments }
         guard seconds >= 1, seconds <= 60, !binary || isatty(STDOUT_FILENO) == 0 else { throw ProbeError.invalidArguments }
     }
 }
@@ -184,7 +187,7 @@ final class AudioOutput: NSObject, SCStreamOutput {
         }
         defer { sources.forEach { $0.cancel() } }
         var completed = 0
-        for cycle in 1...options.cycles {
+        for cycle in 1...(options.continuous ? 1 : options.cycles) {
             if stopped { break }
             let config = SCStreamConfiguration()
             config.capturesAudio = true; config.sampleRate = 48000; config.channelCount = 2
@@ -201,7 +204,7 @@ final class AudioOutput: NSObject, SCStreamOutput {
                 try await stream.startCapture()
                 let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(options.seconds * 1_000_000_000)
                 var permissionCheck = DispatchTime.now().uptimeNanoseconds
-                while !stopped && DispatchTime.now().uptimeNanoseconds < deadline {
+                while !stopped && (options.continuous || DispatchTime.now().uptimeNanoseconds < deadline) {
                     if DispatchTime.now().uptimeNanoseconds >= permissionCheck {
                         guard CGPreflightScreenCaptureAccess() else {
                             try writer.control(["type": "permission", "screenRecording": "revoked", "requestAttempted": false])
@@ -244,7 +247,7 @@ final class AudioOutput: NSObject, SCStreamOutput {
                                  "domain": error.domain, "systemCode": error.code])
                 await output.flush()
             } else {
-                FileHandle.standardError.write(Data("Usage: SystemAudioProbe [--permissions] [--request-permission] [--pcm] [--duration 1..60] [--cycles 1..20]\n".utf8))
+                FileHandle.standardError.write(Data("Usage: SystemAudioProbe [--permissions] [--request-permission] [--pcm] [--duration 1..60] [--cycles 1..20] [--continuous (requires --pcm)]\n".utf8))
             }
             exit(1)
         }

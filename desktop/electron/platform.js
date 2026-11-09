@@ -43,7 +43,7 @@ function permissionStatus(platform, systemPreferences) {
   };
   return {
     microphone: read("microphone"), camera: read("camera"), screen: read("screen"),
-    systemAudio: platform === "darwin" ? "not-implemented" : "unverified",
+    systemAudio: platform === "darwin" ? "helper-permission-separate" : "unverified",
   };
 }
 

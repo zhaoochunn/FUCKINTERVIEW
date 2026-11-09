@@ -23,7 +23,7 @@ async function withMedia(platform: string | undefined, run: (state: {
   }
 }
 
-test("macOS Phase 1 refuses system capture before asking for media", async () => {
+test("macOS without a native bridge refuses browser loopback before asking for media", async () => {
   await withMedia("darwin", async (state) => {
     await assert.rejects(captureSystemAudio(), (error: unknown) =>
       error instanceof CaptureError && error.code === "unsupported");

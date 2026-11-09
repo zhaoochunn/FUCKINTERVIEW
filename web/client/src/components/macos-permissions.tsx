@@ -1,3 +1,4 @@
+import { NativeAudioCheck } from "./native-audio-check";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -34,8 +35,9 @@ export function MacOSPermissions() {
       <p>{zh ? "macOS 权限状态" : "macOS permissions"}</p>
       <p>{zh ? "麦克风" : "Microphone"}: {state(status?.microphone)} · {zh ? "摄像头" : "Camera"}: {state(status?.camera)} · {zh ? "屏幕录制" : "Screen recording"}: {state(status?.screen)}</p>
       <p>{zh
-        ? "Phase 1 尚未实现系统音频采集，不提供可靠防截屏能力。被拒绝的权限请在系统设置 → 隐私与安全性中修改，必要时重启应用。"
-        : "Phase 1 has no system audio capture or reliable capture protection. Change denied permissions in System Settings → Privacy & Security, then restart if needed."}</p>
+        ? "系统音频桥接正在实机验证，不提供可靠防截屏能力。被拒绝的权限请在系统设置 → 隐私与安全性中修改，必要时重启应用。"
+        : "System audio bridging needs device validation; reliable capture protection is unavailable. Change denied permissions in System Settings → Privacy & Security, then restart if needed."}</p>
+      <NativeAudioCheck zh={zh} />
       {error && <p role="alert">{zh ? "无法读取或申请权限，请检查系统设置。" : "Cannot read or request permissions. Check System Settings."}</p>}
       <div className="flex gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => void refresh()}>{zh ? "刷新状态" : "Refresh"}</Button>

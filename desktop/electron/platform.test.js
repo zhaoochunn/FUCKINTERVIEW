@@ -31,7 +31,7 @@ test("permission snapshots report TCC only and never request access", () => {
     return kind === "microphone" ? "denied" : "granted";
   } };
   assert.deepEqual(permissionStatus("darwin", preferences), {
-    microphone: "denied", camera: "unknown", screen: "granted", systemAudio: "not-implemented",
+    microphone: "denied", camera: "unknown", screen: "granted", systemAudio: "helper-permission-separate",
   });
   assert.deepEqual(requested, ["microphone", "camera", "screen"]);
   requested.length = 0;

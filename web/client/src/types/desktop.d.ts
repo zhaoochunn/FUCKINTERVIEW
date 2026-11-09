@@ -6,6 +6,12 @@ declare global {
     desktop?: {
       isDesktop: true;
       platform: string;
+      nativeAudio?: {
+        start: (token: string) => Promise<string>;
+        stop: (token: string) => Promise<void>;
+        ack: (token: string, sequence: number) => void;
+        onPacket: (listener: (packet: import("../lib/native-audio").NativeAudioPacket) => void) => () => void;
+      };
       storage: { pickDirectory: (initial: string) => Promise<string> };
       permissions: {
         status: () => Promise<{

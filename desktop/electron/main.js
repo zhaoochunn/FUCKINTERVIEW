@@ -32,6 +32,9 @@ const { createUrlPolicy, normalizeOrigin, safeExternalUrl } = require("./url-pol
 
 const { windowOptions, menuTemplate } = require("./platform");
 const { installDesktopServices, trustedSender } = require("./desktop-services");
+const { NativeAudio, installNativeAudio } = require("./native-audio");
+const nativeAudio = new NativeAudio({ executable: path.join(__dirname, "../native/macos-audio/build/SystemAudioProbe.app/Contents/MacOS/SystemAudioProbe") });
+const stopNativeAudio = () => nativeAudio.stop().catch((error) => console.error("[native-audio]", error.message));
 const IS_MAC = process.platform === "darwin";
 
 const IS_DEV = process.argv.includes("--dev");
@@ -203,7 +206,12 @@ function createWindow(initialUrl = LOADING_PAGE) {
     event.preventDefault();
     window.setTitle(APP_TITLE);
   });
+  window.webContents.on("render-process-gone", () => { void stopNativeAudio(); });
+  window.webContents.on("did-start-navigation", (_event, _url, inPlace, isMainFrame) => {
+    if (isMainFrame && !inPlace) void stopNativeAudio();
+  });
   window.on("closed", () => {
+    void stopNativeAudio();
     if (mainWindow === window) mainWindow = null;
   });
 
@@ -255,6 +263,7 @@ function showMainWindow() {
 
 function backendExited(started, code, signal) {
   if (quitting || backend !== started) return;
+  void stopNativeAudio();
   backend = null;
   retiredBackend = started;
   urlPolicy.setAppOrigin(null);
@@ -575,6 +584,7 @@ if (!app.requestSingleInstanceLock()) {
     installPermissionHandlers();
     installDisplayMediaHandler();
     installWindowIpc();
+    installNativeAudio({ ipcMain, getWindow: () => mainWindow, isAppOrigin, capture: nativeAudio, enabled: IS_MAC && !app.isPackaged });
     installDesktopServices({ ipcMain, dialog, systemPreferences,
       platform: process.platform, getWindow: () => mainWindow, isAppOrigin });
     installMenu();
@@ -596,6 +606,7 @@ if (!app.requestSingleInstanceLock()) {
     // 就算后端还没走到「就绪」，也要把已经拉起的进程收掉。
     startupAbort.abort();
     Promise.resolve(bootPromise).then(async () => {
+      await nativeAudio.stop();
       await retiredBackend?.stop();
       retiredBackend = null;
       await stopAll();

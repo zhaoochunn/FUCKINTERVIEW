@@ -9,7 +9,7 @@ const { EventEmitter } = require("node:events");
 // Run the real main entry against an Electron double. This validates wiring,
 // not native AppKit/TCC behavior, which still needs the M5 acceptance checklist.
 async function launch(platform, { slow = false, recoverySlow = false } = {}) {
-  const windows = [], handles = new Map(), state = { starts: 0, stops: 0, captures: 0, errors: [], children: [], retiredStops: 0 };
+  const windows = [], handles = new Map(), state = { starts: 0, stops: 0, captures: 0, audioStops: 0, errors: [], children: [], retiredStops: 0 };
   const paths = { appData: "/user/appData", userData: "/user/data" };
   const app = Object.assign(new EventEmitter(), {
     isPackaged: false, getPath: (name) => paths[name],
@@ -75,6 +75,10 @@ async function launch(platform, { slow = false, recoverySlow = false } = {}) {
       if (name === "electron") return electron;
       if (name === "node:fs") return fakeFs;
       if (name === "./backend") return backend;
+      if (name === "./native-audio") return {
+        NativeAudio: class { stop() { state.audioStops++; return Promise.resolve(); } },
+        installNativeAudio: require("./native-audio").installNativeAudio,
+      };
       return name.startsWith(".") ? require(path.join(__dirname, name)) : require(name);
     }, __dirname, console: { log() {}, error() {} }, AbortController,
     process: { platform, argv: [], execPath: "/runtime/electron", env: {} },
@@ -179,4 +183,18 @@ test("quit while recovering does not relaunch or show a second failure dialog", 
   assert.equal(state.errors.length, 1);
   app.emit("activate"); await flush();
   assert.equal(state.starts, 2);
+});
+
+// Lifecycle wiring to the native controller is separate from its real child/IPC tests.
+test("native capture stops on Mac close, renderer crash/navigation, backend crash and application quit", async () => {
+  const { app, windows, state, flush } = await launch("darwin");
+  const contents = windows[0].webContents;
+  contents.emit("did-start-navigation", {}, "http://127.0.0.1:7870/client/", false, false);
+  assert.equal(state.audioStops, 0); // subframe cannot interrupt the main session
+  contents.emit("did-start-navigation", {}, "http://127.0.0.1:7870/client/", false, true);
+  contents.emit("render-process-gone");
+  assert.equal(state.audioStops, 2);
+  windows[0].close(); assert.equal(state.audioStops, 3);
+  state.children[0].emit("exit", 1, null); assert.equal(state.audioStops, 4);
+  app.quit(); await flush(); assert.equal(state.audioStops, 5);
 });
