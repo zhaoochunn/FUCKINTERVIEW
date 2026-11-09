@@ -50,14 +50,15 @@ SmallWebRTC 服务端默认把解码后的输入重采样为 16kHz mono；真实
   以及主动结束 completed 和断线 interrupted。服务是确定性的模拟 ASR/LLM，不证明真实识别或模型回答。
   此测试直接交换 SDP，**不覆盖浏览器 SDK 或 HTTP `/start` 信令**；其请求格式另有前端契约测试。
 - `tests/test_live_lifecycle.py`：5 项设置/运行异常、取消、重复断开收尾、预热任务结束和模拟凭据脱敏回归。
-- `tests/live-capture.test.ts`：准备取消、过期结果不污染新流、ended 监听清理、失效源，以及麦克风初始化跨会话隔离。
+- `web/client/tests/live-capture.test.ts`：准备取消、过期结果不污染新流、ended 监听清理、失效源，以及麦克风初始化跨会话隔离。
 - Linux Chromium + 实际 React hook/AudioWorklet 的检查：模拟 native IPC，麦克风初始化期间停止、晚到初始化清理后重启；
   此时没有发出 startBot。模拟麦克风 RTVI Error 显示通用错误，系统 helper 保持，最后停止后清理。
   原生 helper 和麦克风设备/API 是替身，不作为实机双路证明。
   实际 Console 的准备期音源故障检查也通过：安全错误可见、disconnect 调用、没有 startBot、没有正常结束标记。
 - Linux 冒烟：随仓库的 Silero VAD 和 Smart Turn ONNX 模型初始化成功；并非 M5 自然语音推理或准确率验证。
 - 云端没有调用真实 ASR/LLM、没有个人 API Key、没有用户音频。GitHub Actions 按提交检查，不沿用旧 SHA 的全绿声明。
-  首次 `3b4bd42` backend CI 在收集 WebRTC 测试时因缺 aiortc 失败；这是运行时依赖声明遗漏，已补齐，等待新 SHA 的结果。
+  首次 `3b4bd42` backend CI 在收集 WebRTC 测试时因缺 aiortc 失败；这是运行时依赖声明遗漏。补齐后的 `7365323`
+  [backend CI](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42647420440) 已通过；桌面多平台与原生构建另看对应检查，未自动标为全绿。
 
 ## M5 更新与启动
 

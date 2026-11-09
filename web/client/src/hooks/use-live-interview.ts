@@ -211,6 +211,7 @@ export function useLiveInterview({
     setExtraMessages([]);
     setInterimText("");
     setMicError(null);
+    setCaptureError(null);
   }, []);
 
   const handleTransportStateChange = useCallback(
