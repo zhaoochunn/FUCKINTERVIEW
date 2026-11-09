@@ -64,6 +64,7 @@ class PCMVerifier {
             header.frames < c.frames || (!header.droppedPackets && header.frames !== c.frames)) throw new Error("Invalid cycle completion");
         c.droppedPackets = header.droppedPackets;
         c.rms = Math.sqrt(c.sumSquares / Math.max(c.samples, 1));
+        c.audioSeconds = c.frames / (c.sampleRate || 1);
         delete c.sumSquares; delete c.lastTime; delete c.sequence;
         this.cycles.push(c); this.active = null;
         break;
@@ -101,13 +102,14 @@ class PCMVerifier {
     c.sumSquares += sum; c.peak = Math.max(c.peak, peak);
     if (Math.sqrt(sum / (pcm.length / 4)) >= this.minRms) c.nonSilentPackets++;
   }
-  finish({ cycles, requireSignal = false, permissionsOnly = false } = {}) {
+  finish({ cycles, requireSignal = false, permissionsOnly = false, minAudioSeconds = 0 } = {}) {
     if (permissionsOnly) {
       if (!this.permission) throw new Error("No permission status received");
       return { permission: this.permission };
     }
-    if (!this.complete || this.interrupted || this.cycles.length !== cycles) throw new Error("Capture did not complete requested cycles");
+    if (this.permission !== "granted" || !this.complete || this.interrupted || this.cycles.length !== cycles) throw new Error("Capture did not complete requested cycles with permission");
     if (this.cycles.some((c) => !c.frames || c.droppedPackets || c.missingPackets)) throw new Error("No PCM received or capture dropped packets");
+    if (this.cycles.some((c) => c.audioSeconds < minAudioSeconds)) throw new Error("Insufficient PCM duration for validation");
     if (requireSignal && this.cycles.some((c) => !c.nonSilentPackets)) throw new Error("No non-silent PCM detected in one or more cycles");
     return { permission: this.permission, complete: true, cycles: this.cycles };
   }

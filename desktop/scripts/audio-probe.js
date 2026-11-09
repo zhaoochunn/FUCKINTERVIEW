@@ -58,7 +58,9 @@ async function run(args) {
   if (cancelled) { console.log(JSON.stringify({ cancelled: true })); process.exitCode = 130; return; }
   if (error || code !== 0) throw new Error(`${error?.message || `Native probe exited ${code}`}${stderr ? `; diagnostic=${stderr}` : ""}`);
   reader.end();
-  console.log(JSON.stringify(verifier.finish({ cycles: opts.cycles, requireSignal: opts.requireSignal, permissionsOnly: opts.permissionsOnly }), null, 2));
+  console.log(JSON.stringify(verifier.finish({ cycles: opts.cycles, requireSignal: opts.requireSignal,
+    permissionsOnly: opts.permissionsOnly,
+    minAudioSeconds: opts.requireSignal ? Math.min(opts.duration / 2, 1) : 0 }), null, 2));
 }
 
 if (require.main === module) run(process.argv.slice(2)).catch((error) => { console.error(error.message); process.exitCode = 1; });

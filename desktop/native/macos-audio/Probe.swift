@@ -72,7 +72,11 @@ final class PacketWriter {
     func control(_ values: [String: Any]) throws {
         guard send(values) else { throw ProbeError.outputBlocked }
     }
-    func flush() async { await withCheckedContinuation { continuation in queue.async { continuation.resume() } } }
+    func flush() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { continuation.resume() }
+        }
+    }
 }
 
 final class AudioOutput: NSObject, SCStreamOutput {
@@ -188,11 +192,20 @@ final class AudioOutput: NSObject, SCStreamOutput {
             let output = AudioOutput(writer: writer, cycle: cycle)
             let stream = SCStream(filter: filter, configuration: config, delegate: self)
             try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: output.queue)
+            defer { try? stream.removeStreamOutput(output, type: .audio) }
             try writer.control(["type": "cycle-start", "cycle": cycle, "requestedSampleRate": 48000, "requestedChannels": 2])
             do {
                 try await stream.startCapture()
                 let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(options.seconds * 1_000_000_000)
+                var permissionCheck = DispatchTime.now().uptimeNanoseconds
                 while !stopped && DispatchTime.now().uptimeNanoseconds < deadline {
+                    if DispatchTime.now().uptimeNanoseconds >= permissionCheck {
+                        guard CGPreflightScreenCaptureAccess() else {
+                            try writer.control(["type": "permission", "screenRecording": "revoked", "requestAttempted": false])
+                            throw ProbeError.permissionRequired
+                        }
+                        permissionCheck = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+                    }
                     if writer.isFailed { throw ProbeError.outputBlocked }
                     if output.hasError { throw ProbeError.invalidAudio }
                     try await Task.sleep(nanoseconds: 100_000_000)

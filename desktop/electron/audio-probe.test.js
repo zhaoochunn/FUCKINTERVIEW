@@ -33,6 +33,7 @@ test("framed PCM parses arbitrary partial/coalesced reads without logging PCM", 
   assert.ok(Math.abs(result.cycles[0].rms - 0.1) < 1e-6);
   assert.equal(result.cycles[0].nonSilentPackets, 1);
   assert.equal("pcm" in result.cycles[0], false);
+  assert.throws(() => verifier.finish({ cycles: 1, minAudioSeconds: 1 }), /Insufficient PCM/);
 });
 
 test("silence, missing data, drops and cancelled cycles cannot pass signal validation", () => {
@@ -42,6 +43,9 @@ test("silence, missing data, drops and cancelled cycles cannot pass signal valid
   const dropped = started(); dropped.consume(header, pcm); finish(dropped, { packets: 2, droppedPackets: 1 });
   assert.throws(() => dropped.finish({ cycles: 1 }), /dropped packets/);
   assert.throws(() => started().finish({ cycles: 1 }), /did not complete/);
+  const revoked = started(); revoked.consume(header, pcm); finish(revoked);
+  revoked.permission = "revoked";
+  assert.throws(() => revoked.finish({ cycles: 1 }), /permission/);
   const missing = started(); finish(missing, { packets: 0, frames: 0 });
   assert.throws(() => missing.finish({ cycles: 1 }), /No PCM/);
 });
