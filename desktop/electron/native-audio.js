@@ -53,6 +53,8 @@ class NativeAudio {
     child.stdout.on("data", (chunk) => {
       try { reader.write(chunk); } catch (error) { fail(error.message); }
     });
+    child.stdout.on("error", () => fail("Native PCM pipe failed"));
+    child.stderr.on("error", () => fail("Native helper diagnostic pipe failed"));
     child.stderr.on("data", () => {}); // drain framework diagnostics; never forward raw stderr/PCM
     child.once("error", () => fail("Native helper failed to start; build the helper first"));
     child.once("close", () => {

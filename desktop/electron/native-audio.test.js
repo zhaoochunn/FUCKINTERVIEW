@@ -43,9 +43,10 @@ test('native audio preserves stereo >1 samples, validates timestamps and isolate
   await f.capture.stop(); assert.equal(f.capture.current, null);
 });
 test('unacknowledged PCM and packet loss fail closed rather than growing memory or hiding loss', async () => {
-  for (const mode of ['backpressure', 'loss', 'format', 'denied', 'spawn']) {
+  for (const mode of ['backpressure', 'loss', 'format', 'denied', 'spawn', 'pipe']) {
     const f = fixture(); f.start();
     if (mode === 'denied') f.control({ type: 'error', code: 'permissionRequired', domain: 'Probe', systemCode: 1 });
+    else if (mode === 'pipe') f.children[0].stdout.emit('error', new Error('EIO'));
     else if (mode === 'spawn') f.children[0].emit('error', new Error('ENOENT'));
     else {
       f.ready();
