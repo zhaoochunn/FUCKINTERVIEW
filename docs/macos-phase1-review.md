@@ -36,6 +36,14 @@ taskkill 分支。没有删除或跳过失败测试；只有两项真实 POSIX �
 显式平台参数，新提交的 Windows 任务通过。不得用旧失败或某次本机结果替代新 head 的 CI。
 本轮文档提交触发的检查也应按其 SHA 单独观察；没有宣称排队任务通过。
 
+随后 `878ed39`（功能代码与 `932ce1c` 一致）的实际 push 检查已完成：
+Backend [run 42622615198](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42622615198) success；
+平台 [run 42622615382](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42622615382) 中
+Ubuntu、Windows、macOS ARM64 均 success，桌面/前端测试、安装和构建步骤均通过。
+macOS [job 129178319147](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42622615382/job/129178319147)
+提供 H2 在真实 macOS ARM64 CI 上的验证；H1/H2/M1 的代码与自动化修复已验证，仍待用户 M5 原生复测。
+没有把 Windows 按平台跳过的真实 POSIX 测试计为通过。
+
 本轮完整功能盘点与后续方案见 [macOS 功能矩阵](macos-feature-matrix.md)。
 本轮范围不包括 Phase 2 采集编码、悬浮窗等新功能、安装包或发布。
 
