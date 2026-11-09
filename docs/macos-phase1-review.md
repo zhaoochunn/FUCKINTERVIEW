@@ -4,7 +4,40 @@
 [`zhaoochunn/FUCKINTERVIEW` 的 Draft PR #1](https://github.com/zhaoochunn/FUCKINTERVIEW/pull/1)，
 base `main`，head `feature/macos-arm64`，功能提交
 `a7527f11c6e8595ac656f44de6bf5dfd3220363c`。
-本轮仅修改验收/审核文档，功能代码和测试代码保持原样。
+此前审核阶段仅修改验收/审核文档；其后用户已授权修复 H1/H2/M1。
+历史问题和日志保持原样，下节单独记录修复状态，不把旧 M5 结果扩展到新提交。
+
+## H1/H2/M1 修复记录
+
+功能修复提交 `7820ff6`，跨宿主测试隔离提交 `932ce1c`。
+
+| 问题 | 已实施修复 | 验证边界 |
+| --- | --- | --- |
+| H1 | main.test.js 使用 path.join 构造宿主一致的期望路径；保留窗口/Dock/退出完整断言 | 云端通过，Windows CI 以新提交实际结果为准；不跳过原失败用例 |
+| H2 | 进程组探测遇 EPERM 后读取非特权 ps 快照，核对组成员 UID 与状态；仅在无活成员且已收到组长退出状态时完成。保留 TERM→KILL、超时与实际发送信号的错误；无法判定/其他 UID/发送信号 EPERM 均不作为成功 | 增加 zombie、存活后代、状态未知、TERM/KILL 拒绝、退出事件同步、真实父子进程回归；M5 新修复尚未复测 |
+| M1 | 后端 exit 后清空当前引用、撤销 Origin、移开失效页面并报错；清理旧进程组后才恢复。bootPromise 串行化 Dock/托盘/第二实例触发，退出过程中不重启 | 覆盖窗口开/关、并发恢复、旧 exit、恢复中退出；M5 新修复尚未复测 |
+
+`932ce1c` 还明确给 POSIX 模拟用例指定 darwin 目标平台，避免在 Windows 宿主误走
+taskkill 分支。没有删除或跳过失败测试；只有两项真实 POSIX 进程测试在 Windows 按平台跳过。
+本轮未修改后端业务、依赖清单/锁文件、采集代码或 Windows 的 taskkill /T 功能。
+
+云端本轮执行结果：Python 95 passed（1 个 audioop 弃用警告）、桌面 35 passed、
+前端 5 passed、TypeScript/Vite 构建通过，合计 135 passed；不代表新的 M5 验收。
+历史 M5 124 passed 对应 a7527f1，保持不变。修复提交 `932ce1c` 的新 CI 快照：
+
+| 检查 | 实际状态 | 证据 |
+| --- | --- | --- |
+| Backend | success | [run 42622281103](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42622281103) |
+| 平台 Ubuntu | success | [run 42622280942](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42622280942) |
+| 平台 Windows | success（桌面、前端测试与构建完成） | 同上 |
+| 平台 macOS ARM64 | queued，尚未取得执行结果 | 同上；不可计为通过 |
+
+首个功能提交 `7820ff6` 的 Windows 桌面任务未通过，随后 `932ce1c` 补齐了 POSIX 用例的
+显式平台参数，新提交的 Windows 任务通过。不得用旧失败或某次本机结果替代新 head 的 CI。
+本轮文档提交触发的检查也应按其 SHA 单独观察；没有宣称排队任务通过。
+
+本轮完整功能盘点与后续方案见 [macOS 功能矩阵](macos-feature-matrix.md)。
+本轮范围不包括 Phase 2 采集编码、悬浮窗等新功能、安装包或发布。
 
 ## 审核证据与边界
 
@@ -167,7 +200,7 @@ macOS 环境不兼容，已定位到应用清理代码，不应当作普通 CI �
 
 ## 合并建议与 Phase 2 前置条件
 
-当前建议保留 Draft，不建议合并。先处理 H1/H2，修复并复测 M1，再补齐启动中立即退出、
+当前建议保留 Draft。H1/H2/M1 已有代码修复，需核实新 CI 并在 M5 复测，再补齐启动中立即退出、
 单实例限制、完整窗口操作、麦克风拒绝/重新授权及 Windows 实机回归。重新查看新 head 的 CI，
 不得仅重跑直到偶然变绿。用户确认前不更改 Draft 状态、不合并、不开始 Phase 2。
 

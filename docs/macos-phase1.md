@@ -250,6 +250,49 @@ GitHub Actions 已实际执行 Ubuntu/Windows/macOS 基础自动化矩阵，但�
 - 完整 CI 日志已确认 Windows 路径断言失败，以及 macOS 进程组探测 `kill EPERM`。
   macOS PR 桌面任务为 22 pass/2 fail，Windows 为 22 pass/1 fail/1 skipped，
   与本节用户报告的 M5 本机 124 passed 分开记录。另有异常后端恢复问题，详见审核记录；
-  本轮只记录问题，没有修改功能代码。
+  此前审核轮只记录问题；用户授权后的 H1/H2/M1 修复和新测试结果见审核记录，尚未在 M5 复测。
 - 合并前先定位并解决 CI 失败，再补齐上述启动、权限与 Windows 验收，并复测获准的修复。
 - 不自动将 Draft 改为 Ready for Review，不自动合并；等待用户确认后才决定后续工作。
+
+## 9. 修复后的 M5 复测（待用户执行）
+
+保留本地改动后，从 Fork 开发分支更新，不切换或修改 main：
+
+```bash
+git remote get-url origin
+git fetch origin
+git switch feature/macos-arm64
+git pull --ff-only origin feature/macos-arm64
+git log -1 --oneline
+.venv/bin/python -m pytest -q
+npm --prefix desktop test
+npm --prefix web/client test
+npm --prefix web/client run build
+INTERVIEW_PYTHON="$PWD/.venv/bin/python" npm --prefix desktop start
+```
+
+如果本地存在个人改动，先自行保留，不执行 reset/强制覆盖。本轮云端为 95+35+5 项通过，
+不要将它替换为用户旧 M5 124 passed 的实机结果；复测后另记新提交和环境。
+
+1. 重复正常启动/退出、启动中立即 Command+Q，确认没有 EPERM 对话框或残留进程/端口。
+2. 在无个人资料的测试数据目录中启动应用，用另一终端查看项目后端：
+
+   ```bash
+   ps -axo pid,ppid,pgid,command | rg 'server.py|Electron'
+   lsof -nP -iTCP:7870-7889 -sTCP:LISTEN
+   ```
+
+   核对命令路径确为本项目的 Python 后端后，对那个 PID 执行 `kill -TERM <确认的PID>`，
+   验证错误提示、旧页面停止请求、点击 Dock/菜单栏后可重新加载；恢复后的 Python PID 应变化，
+   服务端口允许复用，不要求端口必然变化。不要使用 killall 或终止其他项目。
+3. 分别在窗口打开、窗口关闭时模拟后端退出；连续点击 Dock/显示主窗口，确认始终只有
+   一个恢复后端和一个主窗口，没有重复启动或继续加载旧服务。
+4. 对确认的本项目 PID 单独模拟 `kill -KILL <确认的PID>`；再验证恢复、清理与 Command+Q。
+   在恢复启动期间立即退出，不应重启或再弹异常退出提示。
+5. 桌面测试中的真实进程用例覆盖忽略 TERM 后 KILL 和父子组清理；在 Mac 上执行并记录结果。
+   如果出现状态无法判断/权限拒绝，保留非敏感错误、PID/PGID 和进程状态；不得用 sudo 或
+   忽略错误来通过验收。
+6. 补齐原生全屏/最小化/缩放、单实例、麦克风拒绝/重新授权；Windows 实机回归仍待执行。
+
+完整功能覆盖范围、状态与下一阶段门禁见 [macOS 功能矩阵](macos-feature-matrix.md)。
+上述只是待执行清单，不是实机通过声明。PR 仍保持 Draft，等待用户确认。
