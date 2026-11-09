@@ -186,7 +186,7 @@ export interface ConsoleProps {
    * 值必须递增；同一个值只在第一次挂载时生效（StrictMode 会挂载两次）。
    */
   autoConnectSignal?: number;
-  /** 用户主动结束会话时调用（点断开、停止共享系统音频）。 */
+  /** 用户在应用内主动断开时调用；音源外部结束不作为正常完成。 */
   onEnd?: () => void;
 
   // -- Bootstrap (forwarded to usePipecatApp) --------------------------------

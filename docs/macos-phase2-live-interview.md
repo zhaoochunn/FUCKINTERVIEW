@@ -37,7 +37,8 @@ M2 流符合现有接口，可以直接复用，不需要再造 WebRTC/供应商
    运行期 ErrorFrame 已有框架凭据脱敏。新增模拟凭据回显的回归；未读取/使用个人凭据。
 
 不改供应商选择、模型、API 地址、业务提示词、原有检索规则/阈值、存储格式及历史时长规则。
-不新增依赖、付费服务、驱动或采集权限。M2 的 48kHz/stereo/单位增益桥接保留；本轮没有新增音质 DSP。
+干净 CI 实际报错 `ModuleNotFoundError: aiortc`：原 requirements 只装基础 Pipecat，未装已有 WebRTC 可选依赖。
+补齐 `-e ./pipecat[webrtc]`，沿用 vendored 声明（aiortc/PyAV、opencv-python-headless）；没有新的供应商、付费依赖、驱动或采集权限。M2 的 48kHz/stereo/单位增益桥接保留；本轮没有新增音质 DSP。
 SmallWebRTC 服务端默认把解码后的输入重采样为 16kHz mono；真实 Opus 音质、削顶与自然语音回合仍需 M5。
 
 ## 云端证据的边界
@@ -53,8 +54,10 @@ SmallWebRTC 服务端默认把解码后的输入重采样为 16kHz mono；真实
 - Linux Chromium + 实际 React hook/AudioWorklet 的检查：模拟 native IPC，麦克风初始化期间停止、晚到初始化清理后重启；
   此时没有发出 startBot。模拟麦克风 RTVI Error 显示通用错误，系统 helper 保持，最后停止后清理。
   原生 helper 和麦克风设备/API 是替身，不作为实机双路证明。
+  实际 Console 的准备期音源故障检查也通过：安全错误可见、disconnect 调用、没有 startBot、没有正常结束标记。
 - Linux 冒烟：随仓库的 Silero VAD 和 Smart Turn ONNX 模型初始化成功；并非 M5 自然语音推理或准确率验证。
 - 云端没有调用真实 ASR/LLM、没有个人 API Key、没有用户音频。GitHub Actions 按提交检查，不沿用旧 SHA 的全绿声明。
+  首次 `3b4bd42` backend CI 在收集 WebRTC 测试时因缺 aiortc 失败；这是运行时依赖声明遗漏，已补齐，等待新 SHA 的结果。
 
 ## M5 更新与启动
 
@@ -65,6 +68,7 @@ git fetch origin
 git switch feature/macos-arm64
 git pull --ff-only origin feature/macos-arm64
 git log -1 --oneline
+.venv/bin/python -m pip install -r requirements.txt
 # 若已有 M2 helper，则保持原二进制/权限身份；缺失时才构建。
 test -x desktop/native/macos-audio/build/SystemAudioProbe.app/Contents/MacOS/SystemAudioProbe || bash desktop/scripts/build-audio-probe.sh
 .venv/bin/python -m pytest -q
