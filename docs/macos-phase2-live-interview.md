@@ -28,6 +28,7 @@ M2 流符合现有接口，可以直接复用，不需要再造 WebRTC/供应商
 3. **运行期供应商错误没有明确界面处理**：SDK 的非 fatal RTVI Error 未被应用消费。
    `use-pipecat-app.ts` 监听 Error，显示通用可操作提示、清理该 client；不回显供应商原始载荷。
    系统路失败由原 Console 错误回调停止两路，麦克风路失败明确显示麦克风错误、保留系统路。
+   错误事件使用递增序号，同文案的重试失败即使被 React 合并状态更新，也重新触发清理回调。
    音源外部结束会显示安全提示并结束尝试，准备阶段也解锁；不把音源故障自动记成用户正常完成。
    该处理适用于共享客户端，包括 Windows 的服务错误；Windows loopback、采集与增益逻辑不变。
 4. **预热任务覆盖、异常收尾遗漏**：`run_bot()` 原先 ASR warm_task 被 QA warm_task 覆盖，且 finally 只涵盖 runner.run。
@@ -55,6 +56,7 @@ SmallWebRTC 服务端默认把解码后的输入重采样为 16kHz mono；真实
   此时没有发出 startBot。模拟麦克风 RTVI Error 显示通用错误，系统 helper 保持，最后停止后清理。
   原生 helper 和麦克风设备/API 是替身，不作为实机双路证明。
   实际 Console 的准备期音源故障检查也通过：安全错误可见、disconnect 调用、没有 startBot、没有正常结束标记。
+  重试后立即重复同一供应商错误，也再次触发了通知/清理；该检查控制 SDK 方法，不调用真实供应商。
 - Linux 冒烟：随仓库的 Silero VAD 和 Smart Turn ONNX 模型初始化成功；并非 M5 自然语音推理或准确率验证。
 - 云端没有调用真实 ASR/LLM、没有个人 API Key、没有用户音频。GitHub Actions 按提交检查，不沿用旧 SHA 的全绿声明。
   首次 `3b4bd42` backend CI 在收集 WebRTC 测试时因缺 aiortc 失败；这是运行时依赖声明遗漏。补齐后的 `7365323`
@@ -63,6 +65,8 @@ SmallWebRTC 服务端默认把解码后的输入重采样为 16kHz mono；真实
   测试仅等待数据库已有答案就关连接，再检查客户端交付，存在真实的断言时序错误。
   修复为在原 12 秒上限内等待完整客户端答案与两路转写，再断开；增加固定 50ms 的客户端输出交付延迟以回归。
   不跳过、不放宽原角色/保存/输出断言；本地修复后 5 次重复合计 15/15 用例通过。
+  修复交付等待的 `17cde9c` [push backend](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42648397858)
+  与 [PR backend](https://github.com/zhaoochunn/FUCKINTERVIEW/actions/runs/42648412641) 均通过。
   `7365323` 桌面 CI 的 Ubuntu/Windows 已通过、macOS 尚排队；原生构建另看对应检查，未自动标为全绿。
 
 ## M5 更新与启动

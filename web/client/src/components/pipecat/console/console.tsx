@@ -339,12 +339,13 @@ export function Console(props: ConsoleProps) {
   // 挂载时的设备初始化 / 传输创建失败不会走 handleConnect（用户还没点
   // 连接），但页面同样锁着。app.error 一旦出现就交给调用方收尾。
   // 放在这里而不是 ConsoleShell：client 创建失败时 Shell 还没挂载。
-  const reportedAppError = React.useRef<string | null>(null);
+  const reportedAppError = React.useRef<number | null>(null);
   React.useEffect(() => {
-    if (!app.error || app.error === reportedAppError.current) return;
-    reportedAppError.current = app.error;
+    if (!app.error) { reportedAppError.current = null; return; }
+    if (app.errorSequence === reportedAppError.current) return;
+    reportedAppError.current = app.errorSequence;
     props.onConnectError?.(new Error(app.error));
-  }, [app.error, props.onConnectError]);
+  }, [app.error, app.errorSequence, props.onConnectError]);
 
   if (!app.client) {
     return (

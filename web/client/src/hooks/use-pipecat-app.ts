@@ -71,6 +71,8 @@ export interface UsePipecatAppReturn {
    * null while healthy. Cleared automatically when connect() retries.
    */
   error: string | null;
+  /** Distinguishes identical failures across retries, including batched state updates. */
+  errorSequence: number;
   clearError: () => void;
   /** Raw client.startBot() response from the most recent connect. */
   rawStartBotResponse: unknown;
@@ -93,7 +95,11 @@ export function usePipecatApp(
   const attemptRef = useRef<object | null>(null);
 
   const [client, setClient] = useState<PipecatClient | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errorEvent, setErrorEvent] = useState<{ text: string | null; sequence: number }>({ text: null, sequence: 0 });
+  const error = errorEvent.text;
+  const setError = useCallback((text: string | null) => {
+    setErrorEvent((previous) => ({ text, sequence: previous.sequence + (text === null ? 0 : 1) }));
+  }, []);
   const [rawStartBotResponse, setRawStartBotResponse] = useState<unknown>(null);
   const [transformedStartBotResponse, setTransformedStartBotResponse] =
     useState<unknown>(null);
@@ -303,6 +309,7 @@ export function usePipecatApp(
     connect,
     disconnect,
     error,
+    errorSequence: errorEvent.sequence,
     clearError,
     rawStartBotResponse,
     transformedStartBotResponse,
