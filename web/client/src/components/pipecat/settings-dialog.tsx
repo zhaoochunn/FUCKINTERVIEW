@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { MacOSPermissions } from "@/components/macos-permissions";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -460,6 +461,8 @@ export function SettingsDialog({
                 checked={captureMic}
                 onChange={onCaptureMicChange}
               />
+
+              <MacOSPermissions />
 
               {contentProtectionSupported && onContentProtectionChange && (
                 <div className="grid gap-1.5">

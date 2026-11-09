@@ -3,6 +3,7 @@
   "version": "1.3.0",
   "main": "index.js",
   "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "pdfjs-assets": "node scripts/copy-pdfjs-assets.js",
     "predev": "npm run pdfjs-assets",
     "dev": "vite",

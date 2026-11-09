@@ -1,6 +1,7 @@
 # 后端运行时依赖（Python 3.11+）
 # pipecat 用仓库里的源码做 editable 安装，它自己的依赖由 pipecat/pyproject.toml 声明。
--e ./pipecat
+# SmallWebRTC 实时音频需要 aiortc / PyAV；基础安装不会包含此可选项。
+-e ./pipecat[webrtc]
 
 fastapi>=0.115
 uvicorn[standard]>=0.30

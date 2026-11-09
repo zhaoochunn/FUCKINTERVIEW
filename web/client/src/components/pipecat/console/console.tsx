@@ -179,12 +179,14 @@ export interface ConsoleProps {
    * audio from the browser's own bar.
    */
   disconnectSignal?: number;
+  /** Safe message when an external audio source ends. */
+  captureError?: string | null;
   /**
    * 首页确认档案后跳过来时，用这个信号让 Console 自动发起一次连接。
    * 值必须递增；同一个值只在第一次挂载时生效（StrictMode 会挂载两次）。
    */
   autoConnectSignal?: number;
-  /** 用户主动结束会话时调用（点断开、停止共享系统音频）。 */
+  /** 用户在应用内主动断开时调用；音源外部结束不作为正常完成。 */
   onEnd?: () => void;
 
   // -- Bootstrap (forwarded to usePipecatApp) --------------------------------
@@ -337,12 +339,13 @@ export function Console(props: ConsoleProps) {
   // 挂载时的设备初始化 / 传输创建失败不会走 handleConnect（用户还没点
   // 连接），但页面同样锁着。app.error 一旦出现就交给调用方收尾。
   // 放在这里而不是 ConsoleShell：client 创建失败时 Shell 还没挂载。
-  const reportedAppError = React.useRef<string | null>(null);
+  const reportedAppError = React.useRef<number | null>(null);
   React.useEffect(() => {
-    if (!app.error || app.error === reportedAppError.current) return;
-    reportedAppError.current = app.error;
+    if (!app.error) { reportedAppError.current = null; return; }
+    if (app.errorSequence === reportedAppError.current) return;
+    reportedAppError.current = app.errorSequence;
     props.onConnectError?.(new Error(app.error));
-  }, [app.error, props.onConnectError]);
+  }, [app.error, app.errorSequence, props.onConnectError]);
 
   if (!app.client) {
     return (
@@ -390,6 +393,7 @@ function ConsoleShell({
   beforeConnect,
   liveConversation,
   disconnectSignal,
+  captureError,
   autoConnectSignal,
   onEnd,
   transportOptions,
@@ -523,7 +527,8 @@ function ConsoleShell({
   const [isEventsCollapsed, setIsEventsCollapsed] =
     React.useState(collapseEventsPanel);
   const [connectError, setConnectError] = React.useState<string | null>(null);
-  const [isPreparing, setIsPreparing] = React.useState(false);
+  const connectAttempt = React.useRef<object | null>(null);
+  React.useEffect(() => () => { connectAttempt.current = null; }, []);
 
   // The live page bumps this when system-audio sharing ends outside the app.
   const handledDisconnectSignal = React.useRef(0);
@@ -531,9 +536,11 @@ function ConsoleShell({
     if (!disconnectSignal || disconnectSignal === handledDisconnectSignal.current)
       return;
     handledDisconnectSignal.current = disconnectSignal;
-    onEnd?.();
+    connectAttempt.current = null;
+    // Source loss is not an explicit user completion. Unlock even if setup never connected.
+    if (captureError) onConnectError?.(new Error(captureError));
     void app.disconnect();
-  }, [app, disconnectSignal, onEnd]);
+  }, [app, disconnectSignal, captureError, onConnectError]);
 
   const connectionUrl = getConnectionUrl(
     startBotParams,
@@ -628,17 +635,22 @@ function ConsoleShell({
   const handleConnect = async () => {
     // beforeConnect can hold a system-audio picker open for a while; without
     // this guard a second click would start a second capture and session.
-    if (isPreparing) return;
-    setIsPreparing(true);
+    if (connectAttempt.current) return;
+    const attempt = {};
+    connectAttempt.current = attempt;
     setConnectError(null);
     try {
       await beforeConnect?.();
+      if (connectAttempt.current !== attempt) return;
       await app.connect();
     } catch (error) {
+      if (connectAttempt.current !== attempt) return;
       setConnectError(error instanceof Error ? error.message : String(error));
       onConnectError?.(error);
     } finally {
-      setIsPreparing(false);
+      if (connectAttempt.current === attempt) {
+        connectAttempt.current = null;
+      }
     }
   };
 
@@ -647,6 +659,7 @@ function ConsoleShell({
       size="sm"
       onConnect={handleConnect}
       onDisconnect={() => {
+        connectAttempt.current = null;
         onEnd?.();
         void Promise.resolve(app.disconnect()).finally(() =>
           onDisconnected?.()
@@ -665,7 +678,7 @@ function ConsoleShell({
     void handleConnectRef.current();
   }, [autoConnectSignal]);
 
-  const errorText = connectError ?? app.error;
+  const errorText = connectError ?? captureError ?? app.error;
 
   return (
     <div

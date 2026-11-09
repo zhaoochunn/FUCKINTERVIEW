@@ -5,7 +5,7 @@ import type {
   PipecatClientOptions,
   TransportConnectionParams,
 } from "@pipecat-ai/client-js";
-import { PipecatClient } from "@pipecat-ai/client-js";
+import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -71,6 +71,8 @@ export interface UsePipecatAppReturn {
    * null while healthy. Cleared automatically when connect() retries.
    */
   error: string | null;
+  /** Distinguishes identical failures across retries, including batched state updates. */
+  errorSequence: number;
   clearError: () => void;
   /** Raw client.startBot() response from the most recent connect. */
   rawStartBotResponse: unknown;
@@ -93,7 +95,11 @@ export function usePipecatApp(
   const attemptRef = useRef<object | null>(null);
 
   const [client, setClient] = useState<PipecatClient | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errorEvent, setErrorEvent] = useState<{ text: string | null; sequence: number }>({ text: null, sequence: 0 });
+  const error = errorEvent.text;
+  const setError = useCallback((text: string | null) => {
+    setErrorEvent((previous) => ({ text, sequence: previous.sequence + (text === null ? 0 : 1) }));
+  }, []);
   const [rawStartBotResponse, setRawStartBotResponse] = useState<unknown>(null);
   const [transformedStartBotResponse, setTransformedStartBotResponse] =
     useState<unknown>(null);
@@ -221,6 +227,15 @@ export function usePipecatApp(
         const setupAttempt = {};
         attemptRef.current = setupAttempt;
         setClient(pcClient);
+        // Provider errors must surface even when the SDK labels them non-fatal.
+        // Do not echo provider payloads (they may include credentials) into UI/logs.
+        pcClient.on(RTVIEvent.Error, () => {
+          if (activeClientRef.current !== pcClient) return;
+          attemptRef.current = null;
+          connectingRef.current = null;
+          setError(i18n.t("errors.pipelineService"));
+          void pcClient.disconnect().catch(() => {});
+        });
         optionsRef.current.onClient?.(pcClient);
 
         if (optionsRef.current.initDevicesOnMount) {
@@ -294,6 +309,7 @@ export function usePipecatApp(
     connect,
     disconnect,
     error,
+    errorSequence: errorEvent.sequence,
     clearError,
     rawStartBotResponse,
     transformedStartBotResponse,

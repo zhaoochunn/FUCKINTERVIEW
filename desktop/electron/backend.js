@@ -11,6 +11,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
+const { createStopper } = require("./process-lifecycle");
 
 const HOST = "127.0.0.1";
 const READY_TIMEOUT_MS = 120_000;
@@ -71,6 +72,7 @@ function sleep(ms) {
 
 /** 最近一次拉起的后端进程，退出时兜底收掉（包括启动到一半就退出的情况）。 */
 let currentChild = null;
+const stoppers = new WeakMap();
 
 /**
  * 启动后端。
@@ -84,9 +86,11 @@ let currentChild = null;
  * @param {Record<string, string>} [options.env] 追加给 Python 进程的环境变量
  * @returns {Promise<{port: number, url: string, child: import("node:child_process").ChildProcess, stop: () => Promise<void>}>}
  */
-async function startBackend({ port, onLog, python, script, cwd, env } = {}) {
+async function startBackend({ port, onLog, python, script, cwd, env, signal } = {}) {
+  signal?.throwIfAborted();
   const preferred = port ?? process.env.INTERVIEW_PORT ?? 7860;
   const chosen = await pickPort(preferred);
+  signal?.throwIfAborted();
   const interpreter = python || resolvePython();
   const serverScript = script || path.join(ROOT, "server.py");
   const workdir = cwd || ROOT;
@@ -115,10 +119,13 @@ async function startBackend({ port, onLog, python, script, cwd, env } = {}) {
         PYTHONUNBUFFERED: "1",
       },
       windowsHide: true,
+      // Own an isolated POSIX group so shutdown also reaches descendants.
+      detached: !isWindows(),
       stdio: ["ignore", "pipe", "pipe"],
     }
   );
   currentChild = child;
+  stoppers.set(child, createStopper(child, { grouped: !isWindows() }));
 
   const tail = [];
   const push = (chunk, stream) => {
@@ -134,18 +141,33 @@ async function startBackend({ port, onLog, python, script, cwd, env } = {}) {
   child.stderr.on("data", (chunk) => push(chunk, "py!"));
 
   let exited = null;
+  let spawnError = null;
+  child.once("error", (error) => { spawnError = error; });
   child.once("exit", (code, signal) => {
     exited = { code, signal };
   });
 
   const deadline = Date.now() + READY_TIMEOUT_MS;
   while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      await stopBackend(child);
+      signal.throwIfAborted();
+    }
+    if (spawnError) {
+      if (currentChild === child) currentChild = null;
+      throw new Error(`无法启动 Python (${interpreter}): ${spawnError.message}`);
+    }
     if (exited) {
+      await stopBackend(child);
       throw new Error(
         `后端进程退出了（code=${exited.code}）\n${tail.slice(-12).join("\n")}`
       );
     }
     if (await isReady(chosen)) {
+      if (signal?.aborted) {
+        await stopBackend(child);
+        signal.throwIfAborted();
+      }
       return {
         port: chosen,
         url: `http://${HOST}:${chosen}/client/`,
@@ -163,28 +185,10 @@ async function startBackend({ port, onLog, python, script, cwd, env } = {}) {
 }
 
 /** 结束 Python 及其子进程（Windows 上单独 kill 会留下 worker）。 */
-function stopBackend(child) {
-  return new Promise((resolve) => {
-    if (!child || child.killed || child.exitCode !== null) {
-      if (currentChild === child) currentChild = null;
-      resolve();
-      return;
-    }
-    const done = () => {
-      if (currentChild === child) currentChild = null;
-      resolve();
-    };
-    child.once("exit", done);
-    if (isWindows()) {
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-        windowsHide: true,
-        stdio: "ignore",
-      }).on("exit", () => setTimeout(done, 300));
-    } else {
-      child.kill("SIGTERM");
-    }
-    setTimeout(done, 4000);
-  });
+async function stopBackend(child) {
+  if (!child) return;
+  await stoppers.get(child)?.();
+  if (currentChild === child) currentChild = null;
 }
 
 /** 退出时兜底：不管后端有没有走到「就绪」，把它收掉。 */

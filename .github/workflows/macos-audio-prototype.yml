@@ -1,0 +1,26 @@
+name: macos-audio-prototype
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build-arm64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Confirm native ARM64 host
+        run: test "$(uname -m)" = arm64
+      - name: Build and verify local development helper
+        run: bash desktop/scripts/build-audio-probe.sh
+      - name: Check binary architecture and argument rejection without requesting capture
+        shell: bash
+        run: |
+          probe=desktop/native/macos-audio/build/SystemAudioProbe.app/Contents/MacOS/SystemAudioProbe
+          test "$(lipo -archs "$probe")" = arm64
+          if "$probe" --duration 0; then exit 1; fi
+      - name: Validate PCM protocol with synthetic test buffers only
+        run: node --test desktop/electron/audio-probe.test.js

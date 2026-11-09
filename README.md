@@ -69,6 +69,12 @@ npm --prefix desktop run dist
 
 产物在 `desktop/dist/FUCKINTERVIEW-Setup-<版本>.exe`。
 
+## macOS 开发（Phase 1）
+
+Apple Silicon 源码开发环境、启动命令、测试与 M5 验收清单见
+[macOS Phase 1 开发说明](docs/macos-phase1.md)。当前仅适配桌面基础功能，
+macOS 系统音频采集、原生安装包及可靠防截屏能力尚未提供。
+
 ## 技术栈
 
 | 层 | 选型 |

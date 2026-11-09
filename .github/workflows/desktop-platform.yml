@@ -1,0 +1,29 @@
+name: desktop-platform
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  platform-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # These Node tests use built-ins and a stdlib Python HTTP fixture, not Electron.
+      - run: npm --prefix desktop test
+      - run: npm --prefix web/client test
+      - run: npm --prefix web/client ci
+      - run: npm --prefix web/client run build

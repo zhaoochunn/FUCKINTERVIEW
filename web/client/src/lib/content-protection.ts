@@ -12,11 +12,11 @@ import { useCallback, useEffect, useState } from "react";
 export function useContentProtection() {
   const api =
     typeof window === "undefined" ? undefined : window.desktop?.privacy;
-  const supported = Boolean(api);
+  const supported = api?.supported === true;
   const [enabled, setEnabledState] = useState(false);
 
   useEffect(() => {
-    if (!api) return;
+    if (!api || !supported) return;
     let cancelled = false;
     api
       .getContentProtection()
@@ -29,12 +29,12 @@ export function useContentProtection() {
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, supported]);
 
   const setEnabled = useCallback(
     (value: boolean) => {
       setEnabledState(value);
-      if (!api) return;
+      if (!api || !supported) return;
       void api
         .setContentProtection(value)
         .then((actual) => setEnabledState(Boolean(actual)))
@@ -46,7 +46,7 @@ export function useContentProtection() {
             .catch(() => {});
         });
     },
-    [api]
+    [api, supported]
   );
 
   return { supported, enabled, setEnabled };

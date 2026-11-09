@@ -87,6 +87,7 @@ from app.materials_ai import (
     generate_card,
     plan_units,
 )
+from pipecat.utils.security.redaction import redact_secrets
 from app.ai import LLMError
 from app.providers import build_llm, build_stt
 
@@ -1234,138 +1235,151 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         f"TTS={settings['tts'].get('provider')}/{settings['tts'].get('model')}"
     )
 
-    async with aiohttp.ClientSession() as session:
-        try:
-            # 复用同一个 aiohttp 会话：ASR 和 TTS 共用连接池，也方便提前
-            # 建好到 ASR 服务的 TLS 连接。
-            stt = build_stt(settings["asr"], session=session)
-        except Exception as error:
-            logger.error(
-                f"ASR 初始化失败（{settings['asr'].get('provider')}/"
-                f"{settings['asr'].get('model')}）：{error}"
-            )
-            raise
+    warm_tasks: list[asyncio.Task] = []
+    finished = False
+    corrector = None
 
-        # 预热 ASR 连接（不阻塞建 pipeline）：把 DNS/TLS 握手放在用户
-        # 开口之前，第一段语音不用再额外等连接建立。
-        warm_up = getattr(stt, "warm_up", None)
-        if callable(warm_up):
-            warm_task = asyncio.create_task(warm_up())
-        else:
-            warm_task = None
-
-        # live 模式用不到 TTS：答案只以文本形式推给前端。
-        # listen 是实时面试的第二路（麦克风），只做转写。
-        # live 用「候选人视角」的提示词，并把绑定档案的事实塞进去。
-        if mode == "listen":
-            llm = None
-            prompt_builder = None
-        else:
-            profile = _live_profile(body)
-            if profile and session_id is not None:
-                sessions_store.set_profile(
-                    session_id, profile.get("id"), profile.get("name")
-                )
-            llm_settings = dict(settings["llm"])
-            llm_settings["system_prompt"] = build_live_system_prompt(profile)
-            logger.info(
-                f"Live interview profile={(profile or {}).get('name') or '(none)'}"
-            )
+    def finish_session():
+        nonlocal finished
+        if finished:
+            return
+        finished = True
+        if session_id is not None:
             try:
-                llm = build_llm(llm_settings)
+                if mode == "listen":
+                    # 候选人那路只贡献转写和 STT 用量，收尾归面试官那路。
+                    sessions_store.add_metrics(session_id, **recorder.finish())
+                else:
+                    metrics = recorder.finish()
+                    if mode == "live" and corrector is not None and corrector.raw:
+                        sessions_store.add_corrections(
+                            session_id,
+                            corrector.hits,
+                            terms_store.referenced_confusions(
+                                "\n".join(corrector.raw)
+                            ),
+                        )
+                    sessions_store.finalize_session(session_id, metrics=metrics)
             except Exception as error:
-                # 安装版最常见的原因是配置没写到可写目录 / 新装还没填 LLM。
-                # 明确记下来，接线日志时不用再猜。
+                # 历史写失败不能影响断开本身。
+                logger.warning(f"写入面试历史失败：{error}")
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            try:
+                # 复用同一个 aiohttp 会话：ASR 和 TTS 共用连接池，也方便提前
+                # 建好到 ASR 服务的 TLS 连接。
+                stt = build_stt(settings["asr"], session=session)
+            except Exception as error:
                 logger.error(
-                    f"实时面试 LLM 初始化失败（{settings['llm'].get('provider')}/"
-                    f"{settings['llm'].get('model')}）：{error}"
+                    f"ASR 初始化失败（{settings['asr'].get('provider')}/"
+                    f"{settings['asr'].get('model')}）：{redact_secrets(str(error))}"
                 )
                 raise
-            prompt_builder = lambda glossary: build_live_system_prompt(profile, glossary)
-            # 问答库检索要用向量模型，提前在后台加载。
-            warm_task = asyncio.create_task(_warm_qa_model())
 
-        context = LLMContext()
-        corrector = TermCorrector()
-        processors = [transport.input(), stt, corrector]
+            # 预热 ASR 连接（不阻塞建 pipeline）：把 DNS/TLS 握手放在用户
+            # 开口之前，第一段语音不用再额外等连接建立。
+            warm_up = getattr(stt, "warm_up", None)
+            if callable(warm_up):
+                warm_tasks.append(asyncio.create_task(warm_up()))
 
-        if mode != "listen":
-            user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
-                context,
-                user_params=_user_turn_params(),
-            )
-            processors.append(user_aggregator)
-            # 面试官的问题先查问答库：命中就直接贴原文，这一轮不跑 LLM。
-            processors.append(QaAnswer(settings))
-            if prompt_builder is not None:
-                processors.append(
-                    GlossaryPrompt(llm, prompt_builder, corrector.transcript)
+            # live 模式用不到 TTS：答案只以文本形式推给前端。
+            # listen 是实时面试的第二路（麦克风），只做转写。
+            # live 用「候选人视角」的提示词，并把绑定档案的事实塞进去。
+            if mode == "listen":
+                llm = None
+                prompt_builder = None
+            else:
+                profile = _live_profile(body)
+                if profile and session_id is not None:
+                    sessions_store.set_profile(
+                        session_id, profile.get("id"), profile.get("name")
+                    )
+                llm_settings = dict(settings["llm"])
+                llm_settings["system_prompt"] = build_live_system_prompt(profile)
+                logger.info(
+                    f"Live interview profile={(profile or {}).get('name') or '(none)'}"
                 )
-            processors.append(llm)
-            # 实时面试只把文本转成 AggregatedTextFrame，由 RTVIObserver
-            # 作为 BotOutput 发给前端，不合成语音。
-            processors.append(TextOnlyOutput())
-            processors.append(LLMTextProcessor())
-            processors += [transport.output(), assistant_aggregator]
-        else:
-            # 分段 STT 靠 VAD 帧切句，而 VAD 由用户聚合器运行；只听不答的
-            # 第二路也必须带上它，否则一段转写都不会产生。
-            user_aggregator, _assistant_aggregator = LLMContextAggregatorPair(
-                context,
-                user_params=_user_turn_params(),
-            )
-            processors += [user_aggregator, transport.output()]
-
-        pipeline = Pipeline(processors)
-
-        worker = PipelineWorker(
-            pipeline,
-            params=PipelineParams(
-                enable_metrics=True,
-                enable_usage_metrics=True,
-            ),
-            idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
-            processor_unusable_policy=ProcessorUnusablePolicy.END,
-            observers=[recorder],
-        )
-
-        runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
-        await runner.add_workers(worker)
-
-        @transport.event_handler("on_client_connected")
-        async def on_client_connected(transport, client):
-            logger.info("Client connected")
-
-        @transport.event_handler("on_client_disconnected")
-        async def on_client_disconnected(transport, client):
-            logger.info("Client disconnected")
-            if session_id is not None:
                 try:
-                    if mode == "listen":
-                        # 候选人那路只贡献转写和 STT 用量，收尾归面试官那路。
-                        sessions_store.add_metrics(session_id, **recorder.finish())
-                    else:
-                        metrics = recorder.finish()
-                        if mode == "live" and corrector.raw:
-                            sessions_store.add_corrections(
-                                session_id,
-                                corrector.hits,
-                                terms_store.referenced_confusions(
-                                    "\n".join(corrector.raw)
-                                ),
-                            )
-                        sessions_store.finalize_session(session_id, metrics=metrics)
+                    llm = build_llm(llm_settings)
                 except Exception as error:
-                    # 历史写失败不能影响断开本身。
-                    logger.warning(f"写入面试历史失败：{error}")
-            await runner.cancel()
+                    # 安装版最常见的原因是配置没写到可写目录 / 新装还没填 LLM。
+                    # 明确记下来，接线日志时不用再猜。
+                    logger.error(
+                        f"实时面试 LLM 初始化失败（{settings['llm'].get('provider')}/"
+                        f"{settings['llm'].get('model')}）：{redact_secrets(str(error))}"
+                    )
+                    raise
+                prompt_builder = lambda glossary: build_live_system_prompt(profile, glossary)
+                # 问答库检索要用向量模型，提前在后台加载。
+                warm_tasks.append(asyncio.create_task(_warm_qa_model()))
 
-        try:
+            context = LLMContext()
+            corrector = TermCorrector()
+            processors = [transport.input(), stt, corrector]
+
+            if mode != "listen":
+                user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
+                    context,
+                    user_params=_user_turn_params(),
+                )
+                processors.append(user_aggregator)
+                # 面试官的问题先查问答库：命中就直接贴原文，这一轮不跑 LLM。
+                processors.append(QaAnswer(settings))
+                if prompt_builder is not None:
+                    processors.append(
+                        GlossaryPrompt(llm, prompt_builder, corrector.transcript)
+                    )
+                processors.append(llm)
+                # 实时面试只把文本转成 AggregatedTextFrame，由 RTVIObserver
+                # 作为 BotOutput 发给前端，不合成语音。
+                processors.append(TextOnlyOutput())
+                processors.append(LLMTextProcessor())
+                processors += [transport.output(), assistant_aggregator]
+            else:
+                # 分段 STT 靠 VAD 帧切句，而 VAD 由用户聚合器运行；只听不答的
+                # 第二路也必须带上它，否则一段转写都不会产生。
+                user_aggregator, _assistant_aggregator = LLMContextAggregatorPair(
+                    context,
+                    user_params=_user_turn_params(),
+                )
+                processors += [user_aggregator, transport.output()]
+
+            pipeline = Pipeline(processors)
+
+            worker = PipelineWorker(
+                pipeline,
+                params=PipelineParams(
+                    enable_metrics=True,
+                    enable_usage_metrics=True,
+                ),
+                idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
+                processor_unusable_policy=ProcessorUnusablePolicy.END,
+                observers=[recorder],
+            )
+
+            runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
+            await runner.add_workers(worker)
+
+            @transport.event_handler("on_client_connected")
+            async def on_client_connected(transport, client):
+                logger.info("Client connected")
+
+            @transport.event_handler("on_client_disconnected")
+            async def on_client_disconnected(transport, client):
+                logger.info("Client disconnected")
+                # Finalize in finally, after pipeline cancellation has drained its observers.
+                await runner.cancel()
+
             await runner.run()
-        finally:
-            # 会话可能在预热完成前就结束（用户马上挂断）；别留下悬挂任务。
-            if warm_task is not None and not warm_task.done():
-                warm_task.cancel()
+    finally:
+        # Also cover provider setup, fatal pipeline failure and task cancellation.
+        for task in warm_tasks:
+            if not task.done():
+                task.cancel()
+        if warm_tasks:
+            await asyncio.gather(*warm_tasks, return_exceptions=True)
+        finish_session()
 
 
 async def bot(runner_args: RunnerArguments):
@@ -1374,7 +1388,7 @@ async def bot(runner_args: RunnerArguments):
         transport = await create_transport(runner_args, transport_params)
         await run_bot(transport, runner_args)
     except ValueError as e:
-        logger.error(f"配置错误: {e}")
+        logger.error(f"配置错误: {redact_secrets(str(e))}")
         raise
 
 

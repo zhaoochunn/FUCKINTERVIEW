@@ -64,3 +64,4 @@ desktop/resources/
 desktop/dist/
 desktop/.eb-cache/
 desktop/.tmp/
+desktop/native/macos-audio/build/

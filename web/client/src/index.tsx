@@ -220,7 +220,7 @@ function Home() {
   const navigate = (next: AppPage) => {
     if (next === page) return;
     // 离开面试页就当作主动结束；没连上的话后端找不到记录，什么也不做。
-    if (page === "interview") void markSessionEnded(interviewId);
+    if (page === "interview" && !interviewEnded) void markSessionEnded(interviewId);
     if (next !== "history") setHistoryFocus(null);
     if (next !== "materials") setMaterialsProfileFocus(null);
     setPage(next);
@@ -522,6 +522,7 @@ function Home() {
                   startBotParams={live.startBotParams}
                   beforeConnect={live.beforeConnect}
                   disconnectSignal={live.disconnectSignal}
+                  captureError={live.captureError}
                   autoConnectSignal={autoStartToken}
                   onEnd={() => void markSessionEnded(interviewId)}
                   onDisconnected={handleInterviewDisconnected}

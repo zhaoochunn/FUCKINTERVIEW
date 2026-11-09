@@ -224,6 +224,9 @@ export async function openStorageFolder(): Promise<void> {
 
 /** 弹出系统文件夹选择器；用户取消时返回空串。 */
 export async function pickFolder(initial: string): Promise<string> {
+  if (typeof window !== "undefined" && window.desktop?.storage) {
+    return window.desktop.storage.pickDirectory(initial);
+  }
   const data = await request<{ path: string }>(
     "/api/storage/pick",
     json("POST", { path: initial }),
